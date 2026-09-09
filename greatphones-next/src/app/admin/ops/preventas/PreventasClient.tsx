@@ -38,6 +38,23 @@ function enDias(n: number) {
   return d.toISOString().split('T')[0]
 }
 
+const HOY_ISO = new Date().toISOString().split('T')[0]
+
+interface PlazoInfo {
+  minDias: number
+  maxDias: number
+  fechaDesde: string
+  fechaHasta: string
+  feriados: { date: string; label: string | null }[]
+}
+
+function esNoHabil(iso: string, feriados: Set<string>) {
+  if (!iso) return false
+  const d = new Date(iso + 'T12:00:00')
+  const g = d.getDay()
+  return g === 0 || g === 6 || feriados.has(iso)
+}
+
 const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: 10,
@@ -74,6 +91,36 @@ export default function PreventasClient() {
   const [dolarCompra, setDolarCompra] = useState(1000)
   const [fechaDesde, setFechaDesde] = useState(() => enDias(7))
   const [fechaHasta, setFechaHasta] = useState(() => enDias(10))
+  const [plazo, setPlazo] = useState<PlazoInfo | null>(null)
+  const feriadosSet = new Set((plazo?.feriados || []).map(f => f.date))
+  // Config del plazo de entrega y feriados
+  const [cfgMin, setCfgMin] = useState('7')
+  const [cfgMax, setCfgMax] = useState('10')
+  const [cfgFerFecha, setCfgFerFecha] = useState('')
+  const [cfgFerLabel, setCfgFerLabel] = useState('')
+  const [cfgMsg, setCfgMsg] = useState<string | null>(null)
+
+  const aplicarConfig = (d: {
+    plazo: { minDias: number; maxDias: number }
+    rango: { fechaDesde: string; fechaHasta: string }
+    feriados?: { date: string; label: string | null }[]
+  }) => {
+    setPlazo({
+      minDias: d.plazo.minDias,
+      maxDias: d.plazo.maxDias,
+      fechaDesde: d.rango.fechaDesde,
+      fechaHasta: d.rango.fechaHasta,
+      feriados: d.feriados || [],
+    })
+    setCfgMin(String(d.plazo.minDias))
+    setCfgMax(String(d.plazo.maxDias))
+  }
+
+  const recargarConfig = async () => {
+    const r = await fetch('/api/admin/preventas-config', { credentials: 'include' })
+    if (!r.ok) return
+    aplicarConfig(await r.json())
+  }
   const [obs, setObs] = useState('')
   const [modeloEsOtro, setModeloEsOtro] = useState(false)
   const [storageSel, setStorageSel] = useState('')
@@ -105,9 +152,19 @@ export default function PreventasClient() {
     fetchDolar().then(d => {
       if (activo && d?.compra) setDolarCompra(d.compra)
     })
+    fetch('/api/admin/preventas-config', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (!activo || !d?.rango) return
+        aplicarConfig(d)
+        setFechaDesde(d.rango.fechaDesde)
+        setFechaHasta(d.rango.fechaHasta)
+      })
+      .catch(() => {})
     return () => {
       activo = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Variantes de almacenamiento con precio configurado para el modelo elegido
@@ -216,13 +273,51 @@ export default function PreventasClient() {
     setUsd('')
     setObs('')
     setFecha(new Date().toISOString().split('T')[0])
-    setFechaDesde(enDias(7))
-    setFechaHasta(enDias(10))
+    setFechaDesde(plazo?.fechaDesde || enDias(7))
+    setFechaHasta(plazo?.fechaHasta || enDias(10))
     setStep(1)
     setMaxStep(1)
     setErrors({})
     setServerMsg(null)
     setDone(null)
+  }
+
+  const guardarPlazo = async () => {
+    setCfgMsg(null)
+    const r = await fetch('/api/admin/preventas-config', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minDias: parseInt(cfgMin) || 0, maxDias: parseInt(cfgMax) || 0 }),
+    })
+    const d = await r.json()
+    if (!r.ok) return setCfgMsg(d.error || 'No se pudo guardar')
+    setCfgMsg('Ventana de plazo guardada')
+    await recargarConfig()
+  }
+
+  const agregarFeriado = async () => {
+    setCfgMsg(null)
+    if (!cfgFerFecha) return setCfgMsg('Elegí una fecha')
+    const r = await fetch('/api/admin/preventas-config', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: cfgFerFecha, label: cfgFerLabel.trim() || undefined }),
+    })
+    const d = await r.json()
+    if (!r.ok) return setCfgMsg(d.error || 'No se pudo agregar')
+    setCfgFerFecha('')
+    setCfgFerLabel('')
+    await recargarConfig()
+  }
+
+  const borrarFeriado = async (date: string) => {
+    await fetch(`/api/admin/preventas-config?date=${date}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    await recargarConfig()
   }
 
   const enviar = async () => {
@@ -397,9 +492,87 @@ export default function PreventasClient() {
         }
       `}</style>
 
-        <p style={{ fontSize: 13, color: '#6B7280', margin: '2px 0 18px' }}>
+        <p style={{ fontSize: 13, color: '#6B7280', margin: '2px 0 12px' }}>
           Reserva sin stock: cobro anticipado y entrega futura
         </p>
+
+        <details
+          style={{
+            border: '1px solid #E6E7F0',
+            borderRadius: 10,
+            padding: '10px 14px',
+            marginBottom: 18,
+            background: '#FBFBFD',
+          }}
+        >
+          <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: '#3D4356' }}>
+            Configurar plazo de entrega y feriados
+          </summary>
+          <div style={{ marginTop: 12 }}>
+            <p style={{ fontSize: 12, color: '#6B7280', margin: '0 0 8px' }}>
+              Ventana sugerida de entrega, en días hábiles desde la fecha de la preventa.
+            </p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={{ ...labelStyle, marginTop: 0 }}>Mín. días hábiles</label>
+                <input
+                  type="number"
+                  min={0}
+                  style={{ ...inputStyle, width: 90 }}
+                  value={cfgMin}
+                  onChange={e => setCfgMin(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ ...labelStyle, marginTop: 0 }}>Máx. días hábiles</label>
+                <input
+                  type="number"
+                  min={0}
+                  style={{ ...inputStyle, width: 90 }}
+                  value={cfgMax}
+                  onChange={e => setCfgMax(e.target.value)}
+                />
+              </div>
+              <button type="button" className="cw-btn" onClick={guardarPlazo} style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid #E6E7F0', background: '#fff', fontSize: 12.5, cursor: 'pointer' }}>
+                Guardar ventana
+              </button>
+            </div>
+
+            <p style={{ fontSize: 12, color: '#6B7280', margin: '16px 0 8px' }}>Feriados</p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={{ ...labelStyle, marginTop: 0 }}>Fecha</label>
+                <input type="date" style={{ ...inputStyle, width: 160 }} value={cfgFerFecha} onChange={e => setCfgFerFecha(e.target.value)} />
+              </div>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <label style={{ ...labelStyle, marginTop: 0 }}>Descripción (opcional)</label>
+                <input style={inputStyle} value={cfgFerLabel} onChange={e => setCfgFerLabel(e.target.value)} placeholder="Ej: Día de la Independencia" />
+              </div>
+              <button type="button" className="cw-btn" onClick={agregarFeriado} style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid #E6E7F0', background: '#fff', fontSize: 12.5, cursor: 'pointer' }}>
+                Agregar
+              </button>
+            </div>
+            {(plazo?.feriados || []).length > 0 && (
+              <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0' }}>
+                {plazo!.feriados.map(f => (
+                  <li
+                    key={f.date}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, padding: '5px 0', borderBottom: '1px solid #EFF1F6' }}
+                  >
+                    <span>
+                      {new Date(f.date + 'T12:00:00').toLocaleDateString('es-AR')}
+                      {f.label ? ` · ${f.label}` : ''}
+                    </span>
+                    <button type="button" onClick={() => borrarFeriado(f.date)} style={{ background: 'none', border: 'none', color: '#B91C1C', cursor: 'pointer', fontSize: 12 }}>
+                      Quitar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {cfgMsg && <p style={{ fontSize: 12, color: '#166534', margin: '8px 0 0' }}>{cfgMsg}</p>}
+          </div>
+        </details>
 
         <nav aria-label="Progreso del formulario">
           <div
@@ -904,7 +1077,9 @@ export default function PreventasClient() {
                 >
                   schedule
                 </span>
-                Por defecto 7 a 10 días desde hoy. Ajustalo si el cliente pide otra fecha.
+                {plazo
+                  ? `Sugerido: ${plazo.minDias} a ${plazo.maxDias} días hábiles (saltea fines de semana y feriados). Ajustalo si el cliente pide otra fecha.`
+                  : 'Por defecto 7 a 10 días hábiles desde hoy. Ajustalo si el cliente pide otra fecha.'}
               </p>
               <div className="cw-grid" style={{ marginTop: 4 }}>
                 <div>
@@ -913,11 +1088,17 @@ export default function PreventasClient() {
                   </label>
                   <input
                     type="date"
+                    min={HOY_ISO}
                     {...fieldProps('fechaDesde')}
                     className="cw-input"
                     value={fechaDesde}
                     onChange={e => setFechaDesde(e.target.value)}
                   />
+                  {esNoHabil(fechaDesde, feriadosSet) && (
+                    <p style={{ fontSize: 11.5, color: '#B45309', margin: '4px 0 0' }}>
+                      Cae en {feriadosSet.has(fechaDesde) ? 'un feriado' : 'fin de semana'} — no es día hábil.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label htmlFor="fechaHasta" style={{ ...labelStyle, marginTop: 0 }}>
@@ -925,13 +1106,29 @@ export default function PreventasClient() {
                   </label>
                   <input
                     type="date"
+                    min={fechaDesde || HOY_ISO}
                     {...fieldProps('fechaHasta')}
                     className="cw-input"
                     value={fechaHasta}
                     onChange={e => setFechaHasta(e.target.value)}
                   />
+                  {esNoHabil(fechaHasta, feriadosSet) && (
+                    <p style={{ fontSize: 11.5, color: '#B45309', margin: '4px 0 0' }}>
+                      Cae en {feriadosSet.has(fechaHasta) ? 'un feriado' : 'fin de semana'} — no es día hábil.
+                    </p>
+                  )}
                 </div>
               </div>
+              {plazo && plazo.feriados.length > 0 && (
+                <p style={{ fontSize: 11.5, color: '#64748B', margin: '8px 0 0' }}>
+                  Próximos feriados cargados:{' '}
+                  {plazo.feriados
+                    .filter(f => f.date >= HOY_ISO)
+                    .slice(0, 4)
+                    .map(f => new Date(f.date + 'T12:00:00').toLocaleDateString('es-AR'))
+                    .join(' · ') || '—'}
+                </p>
+              )}
             </fieldset>
           )}
 

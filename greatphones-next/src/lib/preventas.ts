@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { registerEntry } from '@/lib/accounting'
 import { dolarActual } from '@/lib/dolar-server'
 import { auditar } from '@/lib/audit'
+import { calcularRangoEntrega, validarRangoEntrega } from '@/lib/dias-habiles'
 
 /**
  * Ciclo de preventa (Fase 1 — paridad con el ERP §4.3 y §4.4).
@@ -159,6 +160,22 @@ export async function registrarPreventa(input: RegistrarPreventaInput) {
     )
   }
 
+  // Plazo de entrega: si no lo mandan, se autocalcula por días hábiles
+  // (regla 39/116). Si lo mandan a mano, se valida (regla 117).
+  let fechaDesde = input.fechaDesde
+  let fechaHasta = input.fechaHasta
+  if (!fechaDesde || !fechaHasta) {
+    const rango = await calcularRangoEntrega()
+    fechaDesde = rango.fechaDesde
+    fechaHasta = rango.fechaHasta
+  } else {
+    try {
+      await validarRangoEntrega(fechaDesde, fechaHasta)
+    } catch (e) {
+      throw new PreventaError((e as Error).message)
+    }
+  }
+
   const code = await nextPreCode()
   const medios = mediosDeCobro(input.cobro, usdRate)
   const collectedUsd = medios.reduce((s, m) => s + m.usd, 0)
@@ -184,8 +201,8 @@ export async function registrarPreventa(input: RegistrarPreventaInput) {
         status: PRE.ESPERANDO_COMPRA,
         source: input.source || 'local',
         notes: input.obs || null,
-        expectedDeliveryStart: input.fechaDesde ? new Date(input.fechaDesde) : null,
-        expectedDeliveryEnd: input.fechaHasta ? new Date(input.fechaHasta) : null,
+        expectedDeliveryStart: fechaDesde ? new Date(fechaDesde) : null,
+        expectedDeliveryEnd: fechaHasta ? new Date(fechaHasta) : null,
         createdById: input.createdById || null,
       },
     })
