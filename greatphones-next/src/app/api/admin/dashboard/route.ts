@@ -337,6 +337,44 @@ export async function GET(request: Request) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 6)
 
+    // ── Dimensión financiera (ERP §4.16): caja, preventas, reparaciones ──
+    const { getCashBalances } = await import('@/lib/accounting')
+    const { lastHealthCheck } = await import('@/lib/health')
+    const [cashBalances, preComprado, preEsperando, preSaldo, repAbiertas, gananciaMesRows, health] =
+      await Promise.all([
+        getCashBalances(),
+        prisma.preOrder.count({ where: { deletedAt: null, status: { in: ['COMPRADO', 'PAID', 'CONFIRMED'] } } }),
+        prisma.preOrder.count({ where: { deletedAt: null, status: { in: ['ESPERANDO_COMPRA', 'PENDING'] } } }),
+        prisma.preOrder.count({ where: { deletedAt: null, status: 'ENTREGADO_SALDO' } }),
+        prisma.repair.count({
+          where: { deletedAt: null, status: { in: ['PENDING', 'DIAGNOSIS', 'APPROVED', 'IN_PROGRESS', 'THIRD_PARTY'] } },
+        }),
+        prisma.sale.findMany({
+          where: { status: 'COMPLETED', createdAt: { gte: currentMonth, lt: nextMonth } },
+          select: { profitReal: true },
+        }),
+        lastHealthCheck(),
+      ])
+    const cajaArs = cashBalances
+      .filter(b => b.means !== 'USD')
+      .reduce((s, b) => s + b.balance, 0)
+    const cajaUsd = cashBalances.find(b => b.means === 'USD')?.balanceUsd || 0
+    const gananciaCobradaMes = gananciaMesRows.reduce((s, r) => s + (r.profitReal || 0), 0)
+
+    const finanzas = {
+      caja: {
+        ars: cajaArs,
+        usd: cajaUsd,
+        porMedio: cashBalances.map(b => ({ means: b.means, balance: b.balance, balanceUsd: b.balanceUsd })),
+      },
+      gananciaCobradaMes,
+      preventas: { esperandoCompra: preEsperando, compradas: preComprado, conSaldo: preSaldo },
+      reparacionesAbiertas: repAbiertas,
+      salud: health
+        ? { status: health.status, warning: health.warning, error: health.error, critical: health.critical, runAt: health.runAt }
+        : null,
+    }
+
     // Calculate percentages
     const revenueChange = lastRevenue > 0 ? Math.round(((currentRevenue - lastRevenue) / lastRevenue) * 100) : 0
     const ordersChange = lastOrderCount > 0 ? Math.round(((currentOrderCount - lastOrderCount) / lastOrderCount) * 100) : 0
@@ -352,6 +390,7 @@ export async function GET(request: Request) {
       ticketChange,
       newUsers,
       usersChange,
+      finanzas,
       monthlyStats,
       annualStats: {
         revenue: annualRevenue,

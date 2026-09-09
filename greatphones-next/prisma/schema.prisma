@@ -1139,6 +1139,23 @@ model Holiday {
   @@index([date])
 }
 
+// Health Check (ERP §4.26): resultado de cada corrida de verificación de
+// consistencia. Nunca se borra — permite ver la evolución de la salud del
+// sistema en el tiempo. `findings` es un array JSON de hallazgos.
+model HealthCheck {
+  id        String   @id @default(cuid())
+  runAt     DateTime @default(now())
+  status    String   // OK | WARNING | ERROR | CRITICAL
+  info      Int      @default(0)
+  warning   Int      @default(0)
+  error     Int      @default(0)
+  critical  Int      @default(0)
+  findings  Json     @default("[]")
+  auto      Boolean  @default(false) // true si lo corrió el cron
+
+  @@index([runAt])
+}
+
 // ============================================================
 //  ERP — PRECIOS (Lista de Precios / Mac-iPad / Toma / Cuotas)
 //  Portados desde el ERP (Google Sheets) a Prisma, editables sin

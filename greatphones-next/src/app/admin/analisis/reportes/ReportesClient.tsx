@@ -85,31 +85,57 @@ export default function ReportesClient() {
     avgTicket: number
   }>>([])
   const [loadingDashboard, setLoadingDashboard] = useState(false)
+  const [detalle, setDetalle] = useState<any>(null)
+  const [salud, setSalud] = useState<any>(null)
+  const [corriendoSalud, setCorriendoSalud] = useState(false)
+
+  const qActual = () => {
+    const p = new URLSearchParams()
+    if (desde) p.set('desde', desde)
+    if (hasta) p.set('hasta', hasta)
+    return p.toString()
+  }
 
   const load = async () => {
     setCargando(true)
-    const params = new URLSearchParams()
-    if (desde) params.set('desde', desde)
-    if (hasta) params.set('hasta', hasta)
-    const q = params.toString()
+    const q = qActual()
     try {
-      const [r, rd, dashboardRes] = await Promise.all([
+      const [r, rd, dashboardRes, saludRes] = await Promise.all([
         fetch('/api/admin/analisis/reportes' + (q ? '?' + q : ''), { credentials: 'include' }),
         fetch('/api/admin/precios/dolar?tipo=blue', { credentials: 'include' }),
         fetch('/api/admin/dashboard', { credentials: 'include' }),
+        fetch('/api/admin/health', { credentials: 'include' }),
       ])
       const d = await r.json()
       setBalances(d.balances || [])
       setEntries(d.entries || [])
       setResumen(d.resumen || [])
       setCanales(d.canales)
+      setDetalle(d.detalle || null)
       setPedidosOnline(d.pedidosOnline || { total: 0, cantidad: 0 })
       const dt = await rd.json()
       if (dt && dt.venta) setDolar(dt.venta)
       const dashData = await dashboardRes.json()
       if (dashData && dashData.monthlyStats) setMonthlyStats(dashData.monthlyStats)
+      const sd = await saludRes.json()
+      setSalud(sd.last || null)
     } catch {}
     setCargando(false)
+  }
+
+  const correrSalud = async () => {
+    setCorriendoSalud(true)
+    try {
+      const r = await fetch('/api/admin/health?run=1', { credentials: 'include' })
+      const d = await r.json()
+      setSalud(d)
+    } catch {}
+    setCorriendoSalud(false)
+  }
+
+  const descargarCsv = () => {
+    const q = qActual()
+    window.open('/api/admin/analisis/reportes?format=csv' + (q ? '&' + q : ''), '_blank')
   }
 
   useEffect(() => {
@@ -282,7 +308,56 @@ export default function ReportesClient() {
             </span>
             Filtrar
           </button>
+          <button
+            onClick={descargarCsv}
+            className="pe-btn"
+            style={{ padding: '10px 16px', background: '#fff', color: '#3D4356', border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Exportar CSV
+          </button>
         </div>
+
+        {salud && (
+          <div
+            style={{
+              marginTop: 14,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+              padding: '10px 14px',
+              borderRadius: 10,
+              border: '1px solid ' + (salud.status === 'OK' ? '#A6F4C5' : salud.status === 'WARNING' ? '#FDE68A' : '#FECACA'),
+              background: salud.status === 'OK' ? '#ECFDF3' : salud.status === 'WARNING' ? '#FFFBEB' : '#FEF2F2',
+              fontSize: 12.5,
+            }}
+          >
+            <strong style={{ color: salud.status === 'OK' ? '#0F9D58' : salud.status === 'WARNING' ? '#B45309' : '#B91C1C' }}>
+              Salud del sistema: {salud.status}
+            </strong>
+            <span style={{ color: '#64748B' }}>
+              {salud.critical || 0} críticos · {salud.error || 0} errores · {salud.warning || 0} avisos
+              {salud.runAt ? ` · ${new Date(salud.runAt).toLocaleString('es-AR')}` : ''}
+            </span>
+            <button
+              onClick={correrSalud}
+              disabled={corriendoSalud}
+              style={{ marginLeft: 'auto', background: 'none', border: '1px solid #E6E7F0', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}
+            >
+              {corriendoSalud ? 'Verificando…' : 'Verificar ahora'}
+            </button>
+          </div>
+        )}
+        {salud?.findings?.length > 0 && (
+          <ul style={{ margin: '8px 0 0', padding: 0, listStyle: 'none' }}>
+            {salud.findings.map((f: any, i: number) => (
+              <li key={i} style={{ fontSize: 12, padding: '6px 0', borderBottom: '1px solid #EFF1F6', color: f.severity === 'CRITICAL' || f.severity === 'ERROR' ? '#B91C1C' : f.severity === 'WARNING' ? '#B45309' : '#64748B' }}>
+                <strong>[{f.severity}]</strong> {f.message}
+                {f.refs?.length ? <span style={{ color: '#94A3B8' }}> — {f.refs.slice(0, 6).join(', ')}{f.refs.length > 6 ? '…' : ''}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
 
         {cargando ? (
           <p style={{ textAlign: 'center', color: '#8892A6', padding: 32, fontSize: 13 }}>
@@ -332,9 +407,49 @@ export default function ReportesClient() {
                   canales.otros.total,
                   canales.otros.cantidad,
                   '#B7950B',
-                  
+
                 )}
             </div>
+
+            {detalle && (
+              <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
+                <div style={{ background: '#fff', border: '1px solid #E6E7F0', borderRadius: 12, padding: 16 }}>
+                  <h3 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#181B2E' }}>Ventas del período</h3>
+                  {[
+                    ['Cantidad', String(detalle.ventas.cantidad)],
+                    ['Facturado', fmtP(detalle.ventas.facturado)],
+                    ['Costo', fmtP(detalle.ventas.costo)],
+                    ['Ganancia teórica', fmtP(detalle.ventas.gananciaTeorica)],
+                    ['Ganancia cobrada', fmtP(detalle.ventas.gananciaCobrada)],
+                    ['Propias / Consignación', `${detalle.ventas.propias} / ${detalle.ventas.consignacion}`],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderBottom: '1px solid #F1F3F7' }}>
+                      <span style={{ color: '#64748B' }}>{k}</span>
+                      <strong>{v}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: '#fff', border: '1px solid #E6E7F0', borderRadius: 12, padding: 16 }}>
+                  <h3 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#181B2E' }}>Por vendedor</h3>
+                  {detalle.porVendedor.length === 0 && <p style={{ fontSize: 12, color: '#94A3B8' }}>Sin ventas</p>}
+                  {detalle.porVendedor.map((v: any) => (
+                    <div key={v.operador} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderBottom: '1px solid #F1F3F7' }}>
+                      <span>{v.operador} <span style={{ color: '#94A3B8' }}>({v.cantidad})</span></span>
+                      <span>{fmtP(v.facturado)} · <strong style={{ color: '#0F9D58' }}>{fmtP(v.ganancia)}</strong></span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: '#fff', border: '1px solid #E6E7F0', borderRadius: 12, padding: 16 }}>
+                  <h3 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#181B2E' }}>Preventas por estado</h3>
+                  {detalle.preventasPorEstado.map((p: any) => (
+                    <div key={p.estado} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderBottom: '1px solid #F1F3F7' }}>
+                      <span>{p.estado}</span>
+                      <span>{p.cantidad} · {fmtP(p.monto)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div
               style={{
