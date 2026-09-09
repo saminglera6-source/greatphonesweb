@@ -215,20 +215,24 @@ export async function DELETE(request: Request) {
   const origin = request.headers.get('origin')
   const corsHeaders = getCorsHeaders(origin)
   try {
-    await requireAdmin(request)
+    const admin = await requireAdmin(request)
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
-    
+    const reason = searchParams.get('reason') || null
+
     if (!id) {
       return NextResponse.json({ error: 'ID requerido' }, { status: 400, headers: corsHeaders })
     }
-    
-    await prisma.accessory.delete({
+
+    // Soft-delete (nunca borrado físico): el accesorio puede estar referenciado
+    // por ventas / líneas de pedido.
+    await prisma.accessory.update({
       where: { id },
+      data: { isActive: false, deletedAt: new Date(), deletedBy: admin.id, deleteReason: reason },
     })
 
     accessoryCache.clear()
 
-    return NextResponse.json({ success: true }, { headers: corsHeaders })
+    return NextResponse.json({ success: true, softDeleted: true }, { headers: corsHeaders })
   } catch (error) { return handleRouteError(error) }
 }

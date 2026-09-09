@@ -74,18 +74,27 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
-    await requireAdmin(request)
-    // Unlink all inventory items before deleting the product
-    await prisma.inventoryItem.updateMany({
-      where: { productId: id },
-      data: { productId: null }
-    })
-    await prisma.product.delete({
-      where: { id }
+    const admin = await requireAdmin(request)
+    const { searchParams } = new URL(request.url)
+    const reason = searchParams.get('reason') || null
+
+    // Bloquear si hay unidades de inventario activas o ventas: son datos que
+    // no se pueden dejar huérfanos. Soft-delete siempre (nunca borrado físico).
+    const [invActivas, ventas] = await Promise.all([
+      prisma.inventoryItem.count({ where: { productId: id, status: { in: ['IN_STOCK', 'IN_REPAIR', 'RESERVED', 'ON_HOLD'] } } }),
+      prisma.orderItem.count({ where: { productId: id } }),
+    ])
+    if (invActivas > 0) {
+      return NextResponse.json(
+        { error: `El producto tiene ${invActivas} unidad(es) de inventario activa(s). Dá de baja las unidades primero.` },
+        { status: 409 },
+      )
+    }
+    await prisma.product.update({
+      where: { id },
+      data: { deletedAt: new Date(), deletedBy: admin.id, deleteReason: reason, stock: 0 },
     })
     productCache.clear()
-    return NextResponse.json({ message: 'Product deleted' }, {
-      headers: {  }
-    })
+    return NextResponse.json({ message: 'Producto dado de baja', softDeleted: true, hadSales: ventas > 0 })
   } catch (error) { return handleRouteError(error) }
 }

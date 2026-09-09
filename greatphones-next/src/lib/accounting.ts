@@ -98,65 +98,76 @@ async function updateCashBalance(
   })
 }
 
-async function getAnulledOps(): Promise<Set<string>> {
-  try {
-    const logs = await prisma.auditLog.findMany({
-      where: { action: 'ANULACION' },
-      select: { snapshot: true },
-    })
-    const set = new Set<string>()
-    for (const l of logs as any[]) {
-      const s = l.snapshot as any
-      if (s?.code) set.add(s.code)
-      if (s?.id) set.add(s.id)
-    }
-    return set
-  } catch {
-    return new Set()
-  }
-}
-
-/** Saldo de caja actual por medio de pago (excluye anuladas). */
+/**
+ * Saldo de caja por medio de pago. Se calcula sumando SOLO los asientos con
+ * status ACTIVO (los ANULADO no cuentan; los REVERSION son informativos y no
+ * mueven saldo). Es la fuente de verdad — el `CashRegister` es una caché que
+ * se recalcula con `recomputeCashRegisters` al anular/restaurar.
+ */
 export async function getCashBalances() {
-  const anulled = await getAnulledOps()
-  if (anulled.size === 0) {
-    const regs = await prisma.cashRegister.findMany({ orderBy: { means: 'asc' } })
-    return regs.map(r => ({
-      means: r.means,
-      balance: r.balance,
-      balanceUsd: r.balanceUsd,
-    }))
-  }
-  const entries = await prisma.accountingEntry.findMany({
-    select: { means: true, amount: true, amountUsd: true, type: true, operationId: true },
+  const grouped = await prisma.accountingEntry.groupBy({
+    by: ['means', 'type'],
+    where: { status: 'ACTIVO' },
+    _sum: { amount: true, amountUsd: true },
   })
-  const filtered = entries.filter(e => !e.operationId || !anulled.has(e.operationId))
-  const map = new Map<string, { balance: number; balanceUsd: number | null }>()
-  for (const e of filtered) {
-    const cur = map.get(e.means) || { balance: 0, balanceUsd: 0 }
-    const delta = e.type === 'INGRESO' ? e.amount : e.type === 'EGRESO' ? -e.amount : 0
-    cur.balance += delta
-    if (e.means === 'USD' && e.amountUsd != null) {
-      const dUsd = e.type === 'INGRESO' ? e.amountUsd : e.type === 'EGRESO' ? -e.amountUsd : 0
-      cur.balanceUsd = (cur.balanceUsd || 0) + dUsd
-    }
-    map.set(e.means, cur)
+  const map = new Map<string, { balance: number; balanceUsd: number }>()
+  for (const g of grouped) {
+    const sign = g.type === 'INGRESO' ? 1 : g.type === 'EGRESO' ? -1 : 0
+    const cur = map.get(g.means) || { balance: 0, balanceUsd: 0 }
+    cur.balance += sign * (g._sum.amount || 0)
+    if (g.means === 'USD') cur.balanceUsd += sign * (g._sum.amountUsd || 0)
+    map.set(g.means, cur)
   }
-  const regs = await prisma.cashRegister.findMany({ orderBy: { means: 'asc' } })
-  return regs.map(r => {
-    const v = map.get(r.means)
-    if (v) return { means: r.means, balance: v.balance, balanceUsd: v.balanceUsd }
-    return { means: r.means, balance: 0, balanceUsd: r.means === 'USD' ? 0 : null }
+  const allMeans: PaymentMeans[] = ['EFECTIVO', 'TRANSFERENCIA', 'CUOTAS', 'USD', 'PAGO_ONLINE']
+  return allMeans.map(m => {
+    const v = map.get(m)
+    return {
+      means: m,
+      balance: v?.balance || 0,
+      balanceUsd: m === 'USD' ? v?.balanceUsd || 0 : null,
+    }
   })
 }
 
-/** Libro diario: últimas entradas con filtros (excluye anuladas). */
+/**
+ * Recalcula el saldo de los `CashRegister` indicados sumando únicamente los
+ * asientos con status ACTIVO. Se usa después de anular/restaurar una operación
+ * (que marca asientos ANULADO/ACTIVO) para dejar la caja consistente sin tener
+ * que emitir asientos espejo.
+ */
+export async function recomputeCashRegisters(
+  means: PaymentMeans[],
+  db: DbClient = prisma,
+) {
+  for (const m of means) {
+    const rows = await db.accountingEntry.findMany({
+      where: { means: m, status: 'ACTIVO' },
+      select: { type: true, amount: true, amountUsd: true },
+    })
+    let balance = 0
+    let balanceUsd = 0
+    for (const r of rows) {
+      const sign = r.type === 'INGRESO' ? 1 : r.type === 'EGRESO' ? -1 : 0
+      balance += sign * r.amount
+      if (m === 'USD' && r.amountUsd != null) balanceUsd += sign * r.amountUsd
+    }
+    await db.cashRegister.upsert({
+      where: { means: m },
+      update: { balance, ...(m === 'USD' ? { balanceUsd } : {}) },
+      create: { means: m, balance, balanceUsd: m === 'USD' ? balanceUsd : null },
+    })
+  }
+}
+
+/** Libro diario: últimas entradas con filtros. Por defecto excluye las anuladas. */
 export async function listEntries(opts: {
   page?: number
   limit?: number
   means?: PaymentMeans | string | null
   type?: AccountingType | string | null
   search?: string | null
+  /** 'ACTIVO' (default) | 'ANULADO' | 'ALL' */
+  status?: string | null
 }) {
   const page = Math.max(1, opts.page || 1)
   const limit = Math.min(100, opts.limit || 40)
@@ -170,10 +181,8 @@ export async function listEntries(opts: {
       { source: { contains: opts.search, mode: 'insensitive' } },
     ]
   }
-  const anulled = await getAnulledOps()
-  if (anulled.size > 0) {
-    where.NOT = { operationId: { in: Array.from(anulled) } }
-  }
+  if (opts.status === 'ANULADO') where.status = 'ANULADO'
+  else if (opts.status !== 'ALL') where.status = 'ACTIVO'
   const [data, total] = await Promise.all([
     prisma.accountingEntry.findMany({
       where,

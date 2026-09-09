@@ -411,17 +411,30 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     }
 
-    // Release reserved stock before deleting
-    if (order.status === 'PENDING' || order.status === 'PROCESSING') {
-      await prisma.$transaction(async (tx) => {
-        await restoreStock(tx, order.items, false, order.code)
-      });
+    if (order.deletedAt) {
+      return NextResponse.json({ error: 'El pedido ya fue anulado' }, { status: 409 })
     }
-    
-    await prisma.order.delete({
-      where: { id }
+
+    const reason = searchParams.get('reason') || null
+    const admin = await requireAdmin(request)
+
+    // Liberar stock reservado y marcar el pedido anulado (soft-delete —
+    // nunca se borra un pedido: es un registro contable y de auditoría).
+    await prisma.$transaction(async (tx) => {
+      if (order.status === 'PENDING' || order.status === 'PROCESSING') {
+        await restoreStock(tx, order.items, false, order.code)
+      }
+      await tx.order.update({
+        where: { id },
+        data: {
+          status: 'CANCELLED',
+          deletedAt: new Date(),
+          deletedBy: admin.id,
+          deleteReason: reason,
+        },
+      })
     })
-    
-    return NextResponse.json({ success: true })
+
+    return NextResponse.json({ success: true, softDeleted: true })
   } catch (error) { return handleRouteError(error) }
 }

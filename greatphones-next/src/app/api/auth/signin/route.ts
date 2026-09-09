@@ -33,6 +33,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Debes verificar tu email antes de iniciar sesión', needsVerification: true }, { status: 401 })
     }
 
+    if (user.active === false) {
+      return NextResponse.json({ error: 'Esta cuenta está desactivada. Contactá al negocio.' }, { status: 403 })
+    }
+
     const validPassword = await bcrypt.compare(password, user.password)
     if (!validPassword) {
       return NextResponse.json({ error: 'Email o password incorrectos' }, { status: 401 })

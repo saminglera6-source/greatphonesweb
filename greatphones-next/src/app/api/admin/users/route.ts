@@ -58,77 +58,88 @@ export async function PUT(request: Request) {
   }
 }
 
+/**
+ * "Eliminar" un usuario = DESACTIVARLO. Nunca se borra un usuario con historia
+ * comercial (pedidos, ventas, cotizaciones, reparaciones, preventas, cupones):
+ * eso destruiría registros contables y de auditoría. Si no tiene ninguna
+ * operación, se hace un borrado físico real (es solo una cuenta vacía).
+ */
 export async function DELETE(request: Request) {
   try {
     await requireAdmin(request)
     const { searchParams } = new URL(request.url)
-    // Soportar id único (legacy) o varios ids (multiselección): "ids=a,b,c" o "id=x"
     const rawIds = searchParams.get('ids')
     const singleId = searchParams.get('id')
+    const reason = searchParams.get('reason') || null
     const ids = rawIds ? rawIds.split(',').map(s => s.trim()).filter(Boolean) : (singleId ? [singleId] : [])
 
     if (ids.length === 0) {
       return NextResponse.json({ error: 'Falta un id de usuario' }, { status: 400 })
     }
 
-    const count = await prisma.user.count()
-    const lastUsers = await prisma.user.findMany({
-      where: { role: 'ADMIN' },
-      select: { id: true },
-    })
-    const adminIds = new Set(lastUsers.map(u => u.id))
-    // No permitir eliminar el último admin ni a sí mismo
+    const admins = await prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true } })
+    const adminIds = new Set(admins.map(u => u.id))
     for (const id of ids) {
       if (adminIds.has(id)) {
         return NextResponse.json({ error: 'No se puede eliminar un usuario administrador' }, { status: 400 })
       }
     }
 
-    // Delete en cascada (transacción): borra los registros dependientes del usuario
-    // antes de eliminar el User, evitando violaciones de clave foránea (P2003).
-    await prisma.$transaction(async tx => {
-      for (const id of ids) {
-        // Mensajes y conversaciones del usuario
-        const convs = await tx.conversation.findMany({ where: { userId: id }, select: { id: true } })
-        const convIds = convs.map(c => c.id)
-        if (convIds.length) {
-          await tx.message.deleteMany({ where: { conversationId: { in: convIds } } })
-          await tx.conversation.deleteMany({ where: { id: { in: convIds } } })
-        }
-        await tx.message.deleteMany({ where: { fromUserId: id } })
+    let deactivated = 0
+    let deleted = 0
+    for (const id of ids) {
+      const [orders, sales, quotes, repairs, preorders, coupons, guarantees] = await Promise.all([
+        prisma.order.count({ where: { userId: id } }),
+        prisma.sale.count({ where: { userId: id } }),
+        prisma.quote.count({ where: { userId: id } }),
+        prisma.repair.count({ where: { userId: id } }),
+        prisma.preOrder.count({ where: { OR: [{ userId: id }, { createdById: id }] } }),
+        prisma.coupon.count({ where: { userId: id } }),
+        prisma.guarantee.count({ where: { userId: id } }),
+      ])
+      const tieneOps = orders + sales + quotes + repairs + preorders + coupons + guarantees > 0
 
-        // Datos de la wallet
-        const wallets = await tx.wallet.findMany({ where: { userId: id }, select: { id: true } })
-        const walletIds = wallets.map(w => w.id)
-        if (walletIds.length) {
-          await tx.walletTransaction.deleteMany({ where: { walletId: { in: walletIds } } })
-          await tx.wallet.deleteMany({ where: { id: { in: walletIds } } })
-        }
-
-        // Resto de dependencias que se vinculan por userId
-        await tx.favorite.deleteMany({ where: { userId: id } })
-        await tx.notification.deleteMany({ where: { userId: id } })
-        await tx.cartItem.deleteMany({ where: { cart: { userId: id } } })
-        await tx.cart.deleteMany({ where: { userId: id } })
-        await tx.quote.deleteMany({ where: { userId: id } })
-        await tx.repair.deleteMany({ where: { userId: id } })
-        await tx.arrepentimiento.deleteMany({ where: { userId: id } })
-        await tx.preOrder.deleteMany({ where: { createdById: id } })
-        await tx.coupon.deleteMany({ where: { userId: id } })
-        await tx.session.deleteMany({ where: { userId: id } })
-        await tx.account.deleteMany({ where: { userId: id } })
-
-        await tx.user.delete({ where: { id } })
+      if (tieneOps) {
+        await prisma.user.update({
+          where: { id },
+          data: { active: false, deactivatedAt: new Date(), deactivatedReason: reason },
+        })
+        await prisma.session.deleteMany({ where: { userId: id } }) // cerrar sesiones
+        deactivated++
+      } else {
+        await prisma.$transaction(async tx => {
+          await tx.message.deleteMany({ where: { fromUserId: id } })
+          await tx.notification.deleteMany({ where: { userId: id } })
+          await tx.favorite.deleteMany({ where: { userId: id } })
+          await tx.cartItem.deleteMany({ where: { cart: { userId: id } } })
+          await tx.cart.deleteMany({ where: { userId: id } })
+          const wallets = await tx.wallet.findMany({ where: { userId: id }, select: { id: true } })
+          if (wallets.length) {
+            await tx.walletTransaction.deleteMany({ where: { walletId: { in: wallets.map(w => w.id) } } })
+            await tx.wallet.deleteMany({ where: { userId: id } })
+          }
+          await tx.session.deleteMany({ where: { userId: id } })
+          await tx.account.deleteMany({ where: { userId: id } })
+          await tx.user.delete({ where: { id } })
+        })
+        deleted++
       }
-    })
+    }
 
-    return NextResponse.json({ success: true, deleted: ids.length })
+    return NextResponse.json({
+      success: true,
+      deactivated,
+      deleted,
+      message:
+        deactivated > 0
+          ? `${deactivated} usuario(s) desactivado(s) (tienen historia comercial que se conserva)` +
+            (deleted > 0 ? ` · ${deleted} eliminado(s)` : '')
+          : `${deleted} usuario(s) eliminado(s)`,
+    })
   } catch (error: any) {
-    // Si es una violación de FK que nos quedó sin cubrir, devolvemos mensaje claro
     if (error?.code === 'P2003') {
-      console.error('Delete user FK violation:', error)
       return NextResponse.json(
-        { error: 'No se pudo eliminar: el usuario tiene registros asociados (pedidos, ventas u otros). Revisá los datos vinculados.' },
+        { error: 'El usuario tiene registros asociados. Se puede desactivar, no eliminar.' },
         { status: 409 },
       )
     }

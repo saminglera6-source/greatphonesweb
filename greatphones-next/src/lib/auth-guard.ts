@@ -20,9 +20,9 @@ async function getAuthenticatedUser(request?: Request) {
   if (session?.user?.email) {
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, active: true },
     })
-    if (user) return user
+    if (user && user.active !== false) return user
   }
 
   // `request` está disponible en Route Handlers. En Server Components (p.ej.
@@ -47,9 +47,10 @@ async function getAuthenticatedUser(request?: Request) {
         provincia: true,
         ciudad: true,
         role: true,
+        active: true,
       },
     })
-    if (user) return user
+    if (user && user.active !== false) return user
   }
 
   return null

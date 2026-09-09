@@ -19,6 +19,10 @@ model User {
   avatar                String?
   location              String?
   verified              Boolean           @default(false)
+  // Baja lógica: un usuario con operaciones no se borra, se desactiva.
+  active                Boolean           @default(true)
+  deactivatedAt         DateTime?
+  deactivatedReason     String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   cp                    String?
@@ -842,6 +846,7 @@ enum InventoryStatus {
   RESERVED
   ON_HOLD
   SOLD
+  ANULADO
 }
 
 enum OrderStatus {
@@ -992,11 +997,21 @@ model AccountingEntry {
   operator    String?
   createdById String?
   metadata    Json?
+  // Anulación: nunca se borra un asiento. Al anular una operación sus asientos
+  // pasan a ANULADO y se emite un asiento espejo de reversión (reversalOf apunta
+  // al operationId original). Caja/Reportes solo suman los ACTIVO.
+  status      String         @default("ACTIVO") // ACTIVO | ANULADO | REVERSION
+  reversalOf  String?        // operationId de la operación que este asiento revierte
+  voidedAt    DateTime?
+  voidReason  String?
+  voidedBy    String?
 
   @@index([means])
   @@index([type])
   @@index([source])
   @@index([opDate])
+  @@index([status])
+  @@index([operationId])
 }
 
 // Saldo de caja por medio de pago (pesos y dólares separados, "nunca se mezclan").

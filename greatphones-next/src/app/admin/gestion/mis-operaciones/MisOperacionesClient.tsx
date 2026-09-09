@@ -66,6 +66,7 @@ export default function MisOperacionesClient() {
   const [fecha, setFecha] = useState('')
   const [msg, setMsg] = useState<{ t: string; s: string } | null>(null)
   const [ver, setVer] = useState<Op | null>(null)
+  const [estado, setEstado] = useState<'ACTIVO' | 'ANULADO'>('ACTIVO')
 
   const toast = (t: string, s: string) => {
     setMsg({ t, s })
@@ -74,7 +75,7 @@ export default function MisOperacionesClient() {
 
   const load = useCallback(async () => {
     setCargando(true)
-    const params = new URLSearchParams({ limit: '100' })
+    const params = new URLSearchParams({ limit: '100', estado })
     if (operador) params.set('operador', operador)
     if (source) params.set('source', source)
     if (busqueda) params.set('busqueda', busqueda)
@@ -89,7 +90,7 @@ export default function MisOperacionesClient() {
       toast('error', 'Error al cargar')
     }
     setCargando(false)
-  }, [operador, source, busqueda, fecha])
+  }, [operador, source, busqueda, fecha, estado])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -123,11 +124,23 @@ export default function MisOperacionesClient() {
     })
     const d = await r.json()
     if (!r.ok) return toast('error', d.error || 'Error')
-    if (d.aviso) {
-      toast('error', d.aviso)
-    } else {
-      toast('success', `${d.anulado} anulado (${d.asientos} asientos)`)
-    }
+    toast('success', `${d.operacion} anulado (${d.asientos} asiento${d.asientos === 1 ? '' : 's'})`)
+    load()
+  }
+
+  const restaurar = async (op: Op) => {
+    const quien = prompt('¿Quién restaura ' + op.operationId + '?')
+    if (!quien) return
+    if (!confirm('¿Restaurar ' + op.operationId + '? Vuelve a aplicar sus efectos (stock, caja).')) return
+    const r = await fetch('/api/admin/gestion/mis-operaciones', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operationId: op.operationId, operador: quien }),
+    })
+    const d = await r.json()
+    if (!r.ok) return toast('error', d.error || 'Error')
+    toast('success', `${d.operacion} restaurado`)
     load()
   }
 
@@ -170,12 +183,33 @@ export default function MisOperacionesClient() {
           </div>
         )}
 
+        <div style={{ display: 'flex', gap: 6, marginTop: 16 }}>
+          {(['ACTIVO', 'ANULADO'] as const).map(e => (
+            <button
+              key={e}
+              onClick={() => setEstado(e)}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 9,
+                border: '1px solid ' + (estado === e ? '#4F46E5' : '#E6E7F0'),
+                background: estado === e ? '#4F46E5' : '#fff',
+                color: estado === e ? '#fff' : '#3D4356',
+                fontWeight: 600,
+                fontSize: 12.5,
+                cursor: 'pointer',
+              }}
+            >
+              {e === 'ACTIVO' ? 'Activas' : 'Anuladas'}
+            </button>
+          ))}
+        </div>
+
         <div
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))',
             gap: 10,
-            marginTop: 16,
+            marginTop: 10,
             background: '#fff',
             border: '1px solid #E6E7F0',
             borderRadius: 12,
@@ -427,33 +461,51 @@ export default function MisOperacionesClient() {
                         </span>
                         Ver
                       </button>
-                      <button
-                        onClick={() => anular(op)}
-                        className="pe-btn"
-                        aria-label={`Anular ${op.operationId}`}
-                        style={{
-                          padding: '5px 9px',
-                          background: '#FEF2F2',
-                          color: '#DC2626',
-                          border: '1.5px solid #FECACA',
-                          borderRadius: 7,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
-                      >
-                        <span
-                          className="material-symbols-outlined"
-                          style={{ fontSize: 13 }}
-                          aria-hidden="true"
+                      {estado === 'ACTIVO' ? (
+                        <button
+                          onClick={() => anular(op)}
+                          className="pe-btn"
+                          aria-label={`Anular ${op.operationId}`}
+                          style={{
+                            padding: '5px 9px',
+                            background: '#FEF2F2',
+                            color: '#DC2626',
+                            border: '1.5px solid #FECACA',
+                            borderRadius: 7,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
                         >
-                          block
-                        </span>
-                        Anular
-                      </button>
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }} aria-hidden="true">block</span>
+                          Anular
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => restaurar(op)}
+                          className="pe-btn"
+                          aria-label={`Restaurar ${op.operationId}`}
+                          style={{
+                            padding: '5px 9px',
+                            background: '#ECFDF3',
+                            color: '#0F9D58',
+                            border: '1.5px solid #A6F4C5',
+                            borderRadius: 7,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }} aria-hidden="true">restart_alt</span>
+                          Restaurar
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
