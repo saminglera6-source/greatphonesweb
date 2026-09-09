@@ -13,22 +13,33 @@ import type { AccountingType, PaymentMeans } from '@prisma/client'
  *  - INGRESO suma, EGRESO resta, NEUTRO no modifica.
  *  - USD se conservan como dólares reales.
  */
-export async function registerEntry(opts: {
-  source: string
-  operationId?: string | null
-  description: string
-  category?: string | null
-  type: AccountingType
-  means: PaymentMeans
-  amount: number
-  amountUsd?: number | null
-  opDate?: Date
-  operator?: string | null
-  createdById?: string | null
-  metadata?: Record<string, unknown>
-}) {
+// Cliente Prisma o cliente de transacción (`tx`). Permite generar el asiento
+// dentro de la misma transacción que la operación de negocio que lo origina.
+type DbClient = Omit<
+  typeof prisma,
+  '$transaction' | '$connect' | '$disconnect' | '$on' | '$use' | '$extends'
+>
+
+export async function registerEntry(
+  opts: {
+    source: string
+    operationId?: string | null
+    description: string
+    category?: string | null
+    type: AccountingType
+    means: PaymentMeans
+    amount: number
+    amountUsd?: number | null
+    opDate?: Date
+    operator?: string | null
+    createdById?: string | null
+    metadata?: Record<string, unknown>
+  },
+  client?: DbClient,
+) {
+  const db = client || prisma
   const amount = Math.round(opts.amount || 0)
-  const entry = await prisma.accountingEntry.create({
+  const entry = await db.accountingEntry.create({
     data: {
       source: opts.source,
       operationId: opts.operationId || null,
@@ -50,6 +61,7 @@ export async function registerEntry(opts: {
     opts.type,
     amount,
     opts.means === 'USD' ? (opts.amountUsd ?? null) : null,
+    db,
   )
   return entry
 }
@@ -60,8 +72,9 @@ async function updateCashBalance(
   type: AccountingType,
   amount: number,
   amountUsd: number | null,
+  db: DbClient = prisma,
 ) {
-  const reg = await prisma.cashRegister.upsert({
+  const reg = await db.cashRegister.upsert({
     where: { means },
     update: {},
     create: { means, balance: 0, balanceUsd: means === 'USD' ? 0 : null },
@@ -76,7 +89,7 @@ async function updateCashBalance(
           : 0
       : null
 
-  await prisma.cashRegister.update({
+  await db.cashRegister.update({
     where: { id: reg.id },
     data: {
       balance: reg.balance + delta,

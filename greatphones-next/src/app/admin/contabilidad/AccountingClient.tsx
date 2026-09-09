@@ -52,6 +52,22 @@ export default function AccountingClient() {
   const [fUsd, setFUsd] = useState('')
   const [fOperator, setFOperator] = useState('')
   const [msg, setMsg] = useState<{ t: string; s: string } | null>(null)
+  // cambio de moneda
+  const [cxDir, setCxDir] = useState<'COMPRA_USD' | 'VENTA_USD'>('COMPRA_USD')
+  const [cxUsd, setCxUsd] = useState('')
+  const [cxCaja, setCxCaja] = useState<'EFECTIVO' | 'TRANSFERENCIA'>('EFECTIVO')
+  const [cxCot, setCxCot] = useState('')
+  // ajuste de caja
+  const [ajTipo, setAjTipo] = useState<'SOBRANTE' | 'FALTANTE'>('FALTANTE')
+  const [ajMotivo, setAjMotivo] = useState('')
+  // arqueo
+  const [showArqueo, setShowArqueo] = useState(false)
+  const [arqEf, setArqEf] = useState('')
+  const [arqTr, setArqTr] = useState('')
+  const [arqUsd, setArqUsd] = useState('')
+  const [arqRes, setArqRes] = useState<
+    { means: string; sistema: number; fisico: number | null; diferencia: number | null; tipo: string | null }[]
+  >([])
 
   const load = useCallback(async (p = page, m = means, s = search) => {
     const q = new URLSearchParams({ page: String(p), limit: '50' })
@@ -76,7 +92,49 @@ export default function AccountingClient() {
 
   const toast = (t: string, s: string) => { setMsg({ t, s }); setTimeout(() => setMsg(null), 4000) }
 
+  const resetForm = () => {
+    setShowForm(false); setFDesc(''); setFAmount(''); setFUsd(''); setFOperator('')
+    setCxUsd(''); setCxCot(''); setAjMotivo('')
+  }
+
   const submit = async () => {
+    // Cambio de moneda → endpoint de tesorería (doble asiento)
+    if (fSource === 'CAMBIO') {
+      const usd = parseFloat(cxUsd || '0')
+      if (!(usd > 0)) return toast('error', 'Indicá la cantidad de dólares')
+      const r = await fetch('/api/admin/tesoreria', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 'cambio', usd, cajaPesos: cxCaja, direccion: cxDir,
+          cotizacion: cxCot ? parseFloat(cxCot) : undefined,
+          obs: fDesc || undefined, operator: fOperator || undefined,
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) return toast('error', d.error || 'Error')
+      toast('success', `Cambio ${d.operacion}: USD ${d.usd} ↔ ${fmt(d.pesos)} @ $${d.cotizacion}`)
+      resetForm(); load(1, means, search)
+      return
+    }
+    // Ajuste de caja → endpoint de tesorería (motivo obligatorio)
+    if (fSource === 'AJUSTE') {
+      const amt = parseFloat((fMeans === 'USD' ? fUsd : fAmount) || '0')
+      if (!(amt > 0)) return toast('error', 'Indicá el monto de la diferencia')
+      if (!ajMotivo.trim()) return toast('error', 'El motivo del ajuste es obligatorio')
+      const r = await fetch('/api/admin/tesoreria', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 'ajuste', means: fMeans, tipo: ajTipo, monto: amt, motivo: ajMotivo,
+          obs: fDesc || undefined, operator: fOperator || undefined,
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) return toast('error', d.error || 'Error')
+      toast('success', `Ajuste ${d.operacion} registrado`)
+      resetForm(); load(1, means, search)
+      return
+    }
+    // Gasto / Manual → endpoint contable genérico
     if (!fDesc) return toast('error', 'Descripción requerida')
     const amt = parseInt(fAmount || '0', 10)
     if (fType !== 'NEUTRO' && !amt) return toast('error', 'Monto requerido')
@@ -87,8 +145,32 @@ export default function AccountingClient() {
     const d = await r.json()
     if (!r.ok) return toast('error', d.error || 'Error')
     toast('success', `Movimiento registrado (${d.opNumber})`)
-    setShowForm(false); setFDesc(''); setFAmount(''); setFUsd(''); setFOperator('')
+    resetForm()
     load(1, means, search)
+  }
+
+  const correrArqueo = async () => {
+    const q = new URLSearchParams({ arqueo: '1' })
+    if (arqEf !== '') q.set('efectivo', arqEf)
+    if (arqTr !== '') q.set('transferencia', arqTr)
+    if (arqUsd !== '') q.set('usd', arqUsd)
+    const r = await fetch(`/api/admin/tesoreria?${q}`, { credentials: 'include' })
+    const d = await r.json()
+    if (!r.ok) return toast('error', d.error || 'Error')
+    setArqRes(d)
+  }
+
+  const generarAjusteDesdeArqueo = (row: { means: string; diferencia: number | null; tipo: string | null }) => {
+    if (!row.diferencia || row.tipo === 'OK') return
+    setFSource('AJUSTE')
+    setFMeans(row.means)
+    setAjTipo(row.tipo as 'SOBRANTE' | 'FALTANTE')
+    const abs = Math.abs(row.diferencia)
+    if (row.means === 'USD') setFUsd(String(abs)); else setFAmount(String(Math.round(abs)))
+    setAjMotivo('Diferencia detectada en arqueo')
+    setFDesc('')
+    setShowArqueo(false)
+    setShowForm(true)
   }
 
   const svg = {
@@ -104,10 +186,67 @@ export default function AccountingClient() {
           <h1 style={{ fontSize: 22, fontWeight: 800, color: '#181B2E', margin: 0, fontFamily: 'Manrope,Inter,sans-serif' }}>Caja / Contabilidad</h1>
           <p style={{ fontSize: 13, color: '#6B7280', marginTop: 4 }}>Libro diario y saldo de caja por medio de pago</p>
         </div>
-        <button onClick={() => setShowForm(v => !v)} style={{ background: 'linear-gradient(135deg,#4F46E5,#6366F1)', color: '#fff', border: 'none', padding: '11px 18px', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', boxShadow: '0 4px 14px rgba(79,70,229,.28)' }}>
-          + Registrar movimiento
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => { setShowArqueo(v => !v); setShowForm(false) }} style={{ background: '#fff', color: '#4F46E5', border: '1.5px solid #C7D2FE', padding: '11px 16px', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            Arqueo de caja
+          </button>
+          <button onClick={() => { setShowForm(v => !v); setShowArqueo(false) }} style={{ background: 'linear-gradient(135deg,#4F46E5,#6366F1)', color: '#fff', border: 'none', padding: '11px 18px', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', boxShadow: '0 4px 14px rgba(79,70,229,.28)' }}>
+            + Registrar movimiento
+          </button>
+        </div>
       </div>
+
+      {showArqueo && (
+        <div style={{ background: '#fff', border: '1px solid #E6E7F0', borderRadius: 14, padding: 20, marginBottom: 26, boxShadow: '0 1px 2px rgba(23,23,45,.04)' }}>
+          <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 800, color: '#181B2E' }}>Arqueo de caja</h3>
+          <p style={{ fontSize: 12.5, color: '#6B7280', margin: '0 0 14px' }}>Contá la plata física y compará contra el saldo del sistema. Dejá en blanco los medios que no arquees.</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>Efectivo contado ($)</label>
+              <input type="number" value={arqEf} onChange={e => setArqEf(e.target.value)} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>Transferencia ($)</label>
+              <input type="number" value={arqTr} onChange={e => setArqTr(e.target.value)} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>USD contados</label>
+              <input type="number" value={arqUsd} onChange={e => setArqUsd(e.target.value)} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }} />
+            </div>
+          </div>
+          <button onClick={correrArqueo} style={{ marginTop: 14, background: 'linear-gradient(135deg,#4F46E5,#6366F1)', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Comparar</button>
+          {arqRes.length > 0 && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 16 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #E6E7F0', color: '#6B7280', textAlign: 'left' }}>
+                  <th style={{ padding: '7px 6px' }}>Medio</th>
+                  <th style={{ padding: '7px 6px', textAlign: 'right' }}>Sistema</th>
+                  <th style={{ padding: '7px 6px', textAlign: 'right' }}>Contado</th>
+                  <th style={{ padding: '7px 6px', textAlign: 'right' }}>Diferencia</th>
+                  <th style={{ padding: '7px 6px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {arqRes.map(row => (
+                  <tr key={row.means} style={{ borderBottom: '1px solid #EEF0F5' }}>
+                    <td style={{ padding: '8px 6px', fontWeight: 600 }}>{MEANS_LABEL[row.means] || row.means}</td>
+                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>{row.means === 'USD' ? fmtUsd(row.sistema) : fmt(row.sistema)}</td>
+                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>{row.fisico == null ? '—' : row.means === 'USD' ? fmtUsd(row.fisico) : fmt(row.fisico)}</td>
+                    <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: row.tipo === 'OK' ? '#0F9D58' : row.diferencia == null ? '#9AA1B2' : '#DC2626' }}>
+                      {row.diferencia == null ? '—' : row.tipo === 'OK' ? 'OK' : (row.diferencia > 0 ? '+' : '') + (row.means === 'USD' ? fmtUsd(row.diferencia) : fmt(row.diferencia))}
+                    </td>
+                    <td style={{ padding: '8px 6px' }}>
+                      {row.diferencia != null && row.tipo !== 'OK' && (
+                        <button onClick={() => generarAjusteDesdeArqueo(row)} style={{ background: 'none', border: '1px solid #E6E7F0', borderRadius: 8, padding: '5px 10px', fontSize: 12, cursor: 'pointer', color: '#4F46E5' }}>Generar ajuste</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {msg && (
         <div style={{ padding: '12px 16px', borderRadius: 10, marginBottom: 16, color: '#fff', fontWeight: 600, fontSize: 13, background: msg.t === 'success' ? 'linear-gradient(135deg,#0F9D58,#0C8A4C)' : 'linear-gradient(135deg,#DC2626,#B91C1C)' }}>
@@ -123,45 +262,108 @@ export default function AccountingClient() {
       {showForm && (
         <div style={{ background: '#fff', border: '1px solid #E6E7F0', borderRadius: 14, padding: 20, marginBottom: 26, boxShadow: '0 1px 2px rgba(23,23,45,.04)' }}>
           <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: '#181B2E' }}>Registrar movimiento</h3>
+          {(() => { const sty = { width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' } as const
+          const lbl = { display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 } as const
+          return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>Tipo</label>
-              <select value={fSource} onChange={e => setFSource(e.target.value)} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }}>
+              <label style={lbl}>Tipo</label>
+              <select value={fSource} onChange={e => setFSource(e.target.value)} style={sty}>
                 <option value="GASTO">Gasto</option>
                 <option value="CAMBIO">Cambio de moneda</option>
                 <option value="AJUSTE">Ajuste de caja</option>
                 <option value="MANUAL">Otro</option>
               </select>
             </div>
+
+            {fSource === 'CAMBIO' ? (
+              <>
+                <div>
+                  <label style={lbl}>Operación</label>
+                  <select value={cxDir} onChange={e => setCxDir(e.target.value as 'COMPRA_USD' | 'VENTA_USD')} style={sty}>
+                    <option value="COMPRA_USD">Compro dólares (salen pesos)</option>
+                    <option value="VENTA_USD">Vendo dólares (entran pesos)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Cantidad USD</label>
+                  <input type="number" value={cxUsd} onChange={e => setCxUsd(e.target.value)} style={sty} />
+                </div>
+                <div>
+                  <label style={lbl}>Caja en pesos</label>
+                  <select value={cxCaja} onChange={e => setCxCaja(e.target.value as 'EFECTIVO' | 'TRANSFERENCIA')} style={sty}>
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="TRANSFERENCIA">Transferencia</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Cotización (vacío = la vigente)</label>
+                  <input type="number" value={cxCot} onChange={e => setCxCot(e.target.value)} placeholder="$" style={sty} />
+                </div>
+              </>
+            ) : fSource === 'AJUSTE' ? (
+              <>
+                <div>
+                  <label style={lbl}>Diferencia</label>
+                  <select value={ajTipo} onChange={e => setAjTipo(e.target.value as 'SOBRANTE' | 'FALTANTE')} style={sty}>
+                    <option value="FALTANTE">Faltante (falta plata)</option>
+                    <option value="SOBRANTE">Sobrante (hay de más)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Medio</label>
+                  <select value={fMeans} onChange={e => setFMeans(e.target.value)} style={sty}>
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="TRANSFERENCIA">Transferencia</option>
+                    <option value="USD">Dólares</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>{fMeans === 'USD' ? 'Cantidad USD' : 'Monto ($)'}</label>
+                  <input type="number" value={fMeans === 'USD' ? fUsd : fAmount} onChange={e => fMeans === 'USD' ? setFUsd(e.target.value) : setFAmount(e.target.value)} style={sty} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label style={lbl}>Sentido</label>
+                  <select value={fType} onChange={e => setFType(e.target.value)} style={sty}>
+                    <option value="INGRESO">Ingreso</option>
+                    <option value="EGRESO">Egreso</option>
+                    <option value="NEUTRO">Neutro</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Medio</label>
+                  <select value={fMeans} onChange={e => setFMeans(e.target.value)} style={sty}>
+                    {Object.entries(MEANS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>{fMeans === 'USD' ? 'Cantidad USD' : 'Monto ($)'}</label>
+                  <input type="number" value={fMeans === 'USD' ? fUsd : fAmount} onChange={e => fMeans === 'USD' ? setFUsd(e.target.value) : setFAmount(e.target.value)} style={sty} />
+                </div>
+              </>
+            )}
+
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>Sentido</label>
-              <select value={fType} onChange={e => setFType(e.target.value)} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }}>
-                <option value="INGRESO">Ingreso</option>
-                <option value="EGRESO">Egreso</option>
-                <option value="NEUTRO">Neutro</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>Medio</label>
-              <select value={fMeans} onChange={e => setFMeans(e.target.value)} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }}>
-                {Object.entries(MEANS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>{fMeans === 'USD' ? 'Cantidad USD' : 'Monto ($)'}</label>
-              <input type="number" value={fMeans === 'USD' ? fUsd : fAmount} onChange={e => fMeans === 'USD' ? setFUsd(e.target.value) : setFAmount(e.target.value)} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }} />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>Operador</label>
-              <select value={fOperator} onChange={e => setFOperator(e.target.value)} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }}>
+              <label style={lbl}>Operador</label>
+              <select value={fOperator} onChange={e => setFOperator(e.target.value)} style={sty}>
                 <option value="">Seleccionar...</option>
                 {operators.map(o => <option key={o.name} value={o.name}>{o.name}</option>)}
               </select>
             </div>
           </div>
+          ) })()}
+          {fSource === 'AJUSTE' && (
+            <div style={{ marginTop: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>Motivo del ajuste (obligatorio)</label>
+              <input value={ajMotivo} onChange={e => setAjMotivo(e.target.value)} placeholder="Ej: diferencia detectada en el arqueo del cierre" style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }} />
+            </div>
+          )}
           <div style={{ marginTop: 12 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>Descripción</label>
-            <input value={fDesc} onChange={e => setFDesc(e.target.value)} placeholder="Ej: Alquiler del local, cambio a dólares, ajuste de caja..." style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }} />
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3D4356', marginBottom: 5 }}>{fSource === 'CAMBIO' || fSource === 'AJUSTE' ? 'Observaciones (opcional)' : 'Descripción'}</label>
+            <input value={fDesc} onChange={e => setFDesc(e.target.value)} placeholder={fSource === 'GASTO' ? 'Ej: Alquiler del local' : 'Ej: en la casa de cambio de la esquina'} style={{ width: '100%', padding: 9, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 13, background: '#FBFBFD' }} />
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
             <button onClick={submit} style={{ background: 'linear-gradient(135deg,#4F46E5,#6366F1)', color: '#fff', border: 'none', padding: '11px 20px', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Registrar</button>

@@ -305,7 +305,7 @@ export async function POST(request: NextRequest) {
             const preOrderUpdates = await prisma.preOrder.updateMany({
               where: { orderId: order.id, source: 'online' },
               data: {
-                status: 'CONFIRMED',
+                status: 'COMPRADO', // canónico (antes 'CONFIRMED')
                 mpPaymentId: paymentId.toString(),
               }
             });
@@ -379,19 +379,34 @@ export async function POST(request: NextRequest) {
 } catch { /* non-blocking */ }
       }
 
-      // Núcleo contable: registrar el ingreso del pago online aprobado
+      // Núcleo contable: registrar el ingreso del pago online aprobado.
+      // Si el cliente financió en cuotas, la caja lo separa como CUOTAS (el
+      // dinero entra con otro timing/costo que un pago de contado online).
       if (status === 'approved') {
         try {
-          const pms = paymentMethod?.toLowerCase() || '';
-          const means = pms.includes('card') ? 'PAGO_ONLINE' : pms.includes('wallet') ? 'PAGO_ONLINE' : 'PAGO_ONLINE';
+          const nCuotas = Number(installments) || order.cuotas || 1
+          const means = nCuotas > 1 ? 'CUOTAS' : 'PAGO_ONLINE'
+          const desglose = [
+            order.deliveryCost > 0 ? `envío ${order.deliveryCost}` : null,
+            order.warrantyCost > 0 ? `garantía ext. ${order.warrantyCost}` : null,
+          ].filter(Boolean).join(', ')
           await registerEntry({
             source: order.saleChannel === 'preorder' ? 'PREORDER' : 'ONLINE',
             operationId: order.code,
-            description: `Pago online ${order.saleChannel === 'preorder' ? '(preventa)' : ''} — ${paymentMethod || 'Mercado Pago'}`,
+            description:
+              `Pago online ${order.saleChannel === 'preorder' ? '(preventa) ' : ''}— ${paymentMethod || 'Mercado Pago'}` +
+              (nCuotas > 1 ? ` (${nCuotas} cuotas)` : '') +
+              (desglose ? ` [incluye ${desglose}]` : ''),
             category: order.saleChannel === 'preorder' ? 'Preventas' : 'Ventas',
             type: 'INGRESO',
             means,
             amount: order.total,
+            metadata: {
+              productos: order.total - (order.deliveryCost || 0) - (order.warrantyCost || 0),
+              envio: order.deliveryCost || 0,
+              garantiaExtendida: order.warrantyCost || 0,
+              cuotas: nCuotas,
+            },
             createdById: null,
           })
         } catch (entryErr) {

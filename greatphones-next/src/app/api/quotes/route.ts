@@ -10,6 +10,8 @@ import {
   caeExpiryToDate,
 } from '@/lib/arca'
 import { logger } from '@/lib/logger'
+import { registerEntry } from '@/lib/accounting'
+import { productCache } from '@/lib/cache'
 
 export async function GET(request: Request) {
   try {
@@ -265,6 +267,79 @@ export async function PATCH(request: Request) {
           },
         })
         logger.info({ quoteId: id }, 'PurchasedDevice registered')
+      }
+
+      // Núcleo contable + inventario: aprobar la cotización es comprarle el
+      // equipo al cliente → EGRESO por el precio acordado y alta del equipo en
+      // el inventario (queda "En stock" listo para vender). Idempotente: si ya
+      // existe el InventoryItem de esta cotización, no se repite.
+      const invCode = `CMP-${quote.code}`
+      const yaIngresado = await prisma.inventoryItem.findUnique({ where: { code: invCode } })
+      if (!yaIngresado && quote.finalPrice > 0) {
+        try {
+          const brand = quote.device.split(' ')[0] || 'Apple'
+          let producto = await prisma.product.findFirst({
+            where: { brand, modelGroup: quote.device, storage: quote.storage || null },
+          })
+          if (producto) {
+            producto = await prisma.product.update({
+              where: { id: producto.id },
+              data: { stock: { increment: 1 }, deletedAt: null },
+            })
+          } else {
+            producto = await prisma.product.create({
+              data: {
+                name: quote.device,
+                brand,
+                modelGroup: quote.device,
+                ico: '📱',
+                condition: quote.condition || 'Bueno',
+                price: Math.round(quote.finalPrice * 1.3),
+                cost: quote.finalPrice,
+                stock: 1,
+                type: 'celular',
+                storage: quote.storage || undefined,
+                battery: quote.batteryHealth ?? undefined,
+                description: `Comprado por cotización ${quote.code}`,
+              },
+            })
+          }
+          await prisma.inventoryItem.create({
+            data: {
+              code: invCode,
+              imei: quote.code ? `NOIMEI-${quote.code}` : `NOIMEI-${Date.now().toString().slice(-9)}`,
+              brand,
+              modelName: quote.device,
+              storage: quote.storage || null,
+              deviceType: 'celular',
+              purchasePrice: quote.finalPrice,
+              cosmeticCondition: quote.condition || 'Bueno',
+              functionalCondition: quote.condition || null,
+              batteryHealth: quote.batteryHealth ?? null,
+              purchasedFrom: quote.clientName || 'Cliente (cotización online)',
+              status: 'IN_STOCK',
+              targetPrice: Math.round(quote.finalPrice * 1.3),
+              productId: producto.id,
+              createdById: createdById,
+              notes: `Alta automática al aprobar la cotización ${quote.code}`,
+            },
+          })
+          productCache.clear()
+          await registerEntry({
+            source: 'COMPRA',
+            operationId: invCode,
+            description: `Compra de equipo usado (cotización ${quote.code}): ${quote.device}`,
+            category: 'COMPRA_EQUIPO',
+            type: 'EGRESO',
+            means: quote.payment === 'transfer' || quote.payment === 'mp' ? 'TRANSFERENCIA' : 'EFECTIVO',
+            amount: quote.finalPrice,
+            operator: adminUser.email || null,
+            createdById: adminUser.id,
+          })
+          logger.info({ quoteId: id, invCode }, 'InventoryItem + EGRESO created from approved quote')
+        } catch (e) {
+          logger.error({ err: e, quoteId: id }, 'Error creating inventory/EGRESO from quote')
+        }
       }
 
       // Actualizar estado de la cotización (siempre, haya factura o no)
