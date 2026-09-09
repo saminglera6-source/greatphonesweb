@@ -17,6 +17,13 @@ interface Producto {
   stock: number
   reserved: number
   battery?: number | null
+  inventoryItems?: {
+    id: string
+    imei: string
+    purchasePrice: number
+    batteryHealth?: number | null
+    cosmeticCondition?: string | null
+  }[]
 }
 
 const OPERADORES = ['Martin', 'Maca', 'Sam', 'Eva', 'Buda']
@@ -50,6 +57,7 @@ const labelStyle: React.CSSProperties = {
 export default function VentasClient() {
   const [equipos, setEquipos] = useState<Producto[]>([])
   const [opEquipo, setOpEquipo] = useState('')
+  const [unidadSel, setUnidadSel] = useState('') // inventoryItemId concreto (opcional)
   const [catAcc, setCatAcc] = useState<
     { id: string; name: string; price: number; stock: number; reserved: number }[]
   >([])
@@ -154,10 +162,12 @@ export default function VentasClient() {
 
   const seleccionarEquipo = (id: string) => {
     setOpEquipo(id)
+    setUnidadSel('')
     limpiarError('opEquipo')
     const p = equipos.find(x => x.id === id)
     if (p?.price) setPrecioVenta(String(p.price))
   }
+  const unidades = equipoSel?.inventoryItems || []
 
   const agregarAccesorioCatalogo = () => {
     const acc = catAcc.find(a => a.id === accSel)
@@ -229,6 +239,7 @@ export default function VentasClient() {
 
   const resetear = () => {
     setOpEquipo('')
+    setUnidadSel('')
     setPrecioVenta('')
     setCliente('')
     setCuil('')
@@ -273,6 +284,7 @@ export default function VentasClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           productId: opEquipo,
+          inventoryItemId: unidadSel || undefined,
           fecha,
           precioVenta: precio,
           cliente,
@@ -757,6 +769,29 @@ export default function VentasClient() {
                     : ''}{' '}
                   · Precio sugerido: {fmt(equipoSel.price)}
                 </p>
+              )}
+
+              {unidades.length > 0 && (
+                <>
+                  <label htmlFor="unidadSel" style={labelStyle}>
+                    Unidad (IMEI) — {unidades.length} en stock
+                  </label>
+                  <select
+                    id="unidadSel"
+                    className="cw-input"
+                    value={unidadSel}
+                    onChange={e => setUnidadSel(e.target.value)}
+                  >
+                    <option value="">Automática (la más antigua)</option>
+                    {unidades.map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.imei} · costo {fmt(u.purchasePrice)}
+                        {u.batteryHealth ? ` · bat ${u.batteryHealth}%` : ''}
+                        {u.cosmeticCondition ? ` · ${u.cosmeticCondition}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </>
               )}
 
               <label htmlFor="fecha" style={labelStyle}>

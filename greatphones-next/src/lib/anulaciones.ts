@@ -83,7 +83,10 @@ export async function anularOperacion(ctx: Ctx) {
       }
       if (Array.isArray(meta.accesorios)) {
         for (const nombre of meta.accesorios) {
-          await tx.accessory.updateMany({ where: { name: nombre, isActive: true }, data: { stock: { increment: 1 } } }).catch(() => {})
+          await tx.accessory.updateMany({
+            where: { name: nombre, isActive: true },
+            data: { stock: { increment: 1 }, sold: { decrement: 1 } },
+          }).catch(() => {})
         }
       }
       if (sale?.imei) {
