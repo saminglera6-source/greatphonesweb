@@ -271,7 +271,21 @@ model PreOrder {
   customName            String?
   customPrice           Int?
   notes                 String?
-  status                String    @default("PENDING")
+  // Valores canónicos (Fase 1 ciclo de preventa): ESPERANDO_COMPRA | COMPRADO |
+  // ENTREGADO_SALDO | ENTREGADO | CANCELADO. El servicio lib/preventas.ts es la
+  // única fuente de escritura; se mantiene como String por compat. con datos
+  // históricos (PENDING/PAID/CONFIRMED/DELIVERED) que se normalizan al leer.
+  status                String    @default("ESPERANDO_COMPRA")
+  // Cobro acumulado de la preventa (seña + entregas parciales). ARS en pesos;
+  // collectedUsd en cantidad de dólares reales. El saldo a cobrar en la entrega
+  // es price - collectedArs - round(collectedUsd * cotización).
+  collectedArs          Int       @default(0)
+  collectedUsd          Float     @default(0)
+  // Vendedor comercial que tomó la preventa (distinto del operador que la cargó).
+  sellerName            String?
+  // Código de la Venta (Sale) generada al entregar — se reutiliza en entregas
+  // parciales sucesivas para no duplicarla.
+  saleCode              String?
   createdById           String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -1097,6 +1111,17 @@ model AppConfig {
   updatedBy String?
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+// Feriados para el cálculo de días hábiles (plazo de entrega de preventas).
+// Equivale a CONFIG_FERIADOS del ERP. Editable desde el panel.
+model Holiday {
+  id        String   @id @default(cuid())
+  date      DateTime @unique @db.Date
+  label     String?
+  createdAt DateTime @default(now())
+
+  @@index([date])
 }
 
 // ============================================================

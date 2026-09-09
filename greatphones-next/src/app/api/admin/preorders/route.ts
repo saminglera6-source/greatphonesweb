@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-guard'
-import { registerEntry } from '@/lib/accounting'
+import { dolarActual } from '@/lib/dolar-server'
+import { PRE, normalizeStatus, saldoPendiente, statusFilterValues } from '@/lib/preventas'
 
 function generatePreOrderCode() {
   const prefix = 'PRE'
@@ -18,8 +19,9 @@ export async function GET(request: Request) {
     const search = searchParams.get('search')
     const source = searchParams.get('source')
 
-    const where: any = {}
-    if (status) where.status = status
+    const where: any = { deletedAt: null }
+    const statusVals = statusFilterValues(status)
+    if (statusVals) where.status = { in: statusVals }
     if (source) where.source = source
     if (search) {
       const s = search.trim()
@@ -36,31 +38,43 @@ export async function GET(request: Request) {
       orderBy: { createdAt: 'desc' },
     })
 
-    return NextResponse.json(preOrders)
+    const usdRate = (await dolarActual()).compra || 1000
+    return NextResponse.json(
+      preOrders.map(p => ({
+        ...p,
+        status: normalizeStatus(p.status),
+        saldo: saldoPendiente(p, usdRate),
+      })),
+    )
   } catch (error) {
     console.error('Error fetching preorders:', error)
     return NextResponse.json({ error: 'Error al obtener preventas' }, { status: 500 })
   }
 }
 
+/**
+ * Reserva de preventa sin cobro (flujo legacy de "Venta en Tienda" / instore.js):
+ * el cliente reserva un modelo, sin seña. El cobro se registra después, al
+ * entregar. Para el registro CON seña, el frontend nuevo usa /api/admin/ops/preventas
+ * (servicio lib/preventas.ts).
+ */
 export async function POST(request: Request) {
   try {
     const admin = await requireAdmin(request)
     const body = await request.json()
     const {
       clientName, clientDni, clientPhone, clientEmail,
+      productId, customName, customPrice,
       productModelName, productStorage, productColor, productCondition,
-      price, paymentMethod, paymentType, installments,
       expectedDeliveryStart, expectedDeliveryEnd,
-      notes, operador, vendedor,
+      notes, vendedor,
     } = body
 
     if (!clientName || !clientName.trim()) {
       return NextResponse.json({ error: 'El nombre del cliente es obligatorio' }, { status: 400 })
     }
-
-    if (!productModelName) {
-      return NextResponse.json({ error: 'Seleccioná un modelo de iPhone' }, { status: 400 })
+    if (!productId && !customName && !productModelName) {
+      return NextResponse.json({ error: 'Seleccioná un producto o ingresá un modelo' }, { status: 400 })
     }
 
     const preOrder = await prisma.preOrder.create({
@@ -70,39 +84,24 @@ export async function POST(request: Request) {
         clientDni: clientDni || null,
         clientPhone: clientPhone || null,
         clientEmail: clientEmail || null,
-        productModelName: productModelName || null,
+        productId: productId || null,
+        customName: customName || null,
+        customPrice: customPrice ? Number(customPrice) : null,
+        productModelName: productModelName || customName || null,
         productStorage: productStorage || null,
         productColor: productColor || null,
         productCondition: productCondition || null,
-        price: price ? Number(price) : 0,
-        paymentMethod: paymentMethod || null,
-        paymentType: paymentType || null,
-        installments: installments ? Number(installments) : null,
+        price: customPrice ? Number(customPrice) : 0,
+        collectedArs: 0,
+        collectedUsd: 0,
+        sellerName: vendedor || null,
+        status: PRE.ESPERANDO_COMPRA,
         expectedDeliveryStart: expectedDeliveryStart ? new Date(expectedDeliveryStart) : null,
         expectedDeliveryEnd: expectedDeliveryEnd ? new Date(expectedDeliveryEnd) : null,
         notes: notes || null,
         createdById: admin.id,
       },
     })
-
-    // Núcleo contable: cobro anticipado de la preventa → asiento INGRESO
-    const amt = price ? Number(price) : 0
-    if (amt > 0) {
-      const means = paymentMethod === 'cash' ? 'EFECTIVO' : paymentMethod === 'transfer' ? 'TRANSFERENCIA' : paymentType === 'card' ? 'CUOTAS' : 'TRANSFERENCIA'
-      try {
-        await registerEntry({
-          source: 'PREORDER',
-          operationId: preOrder.code,
-          description: `Preventa ${preOrder.code} — ${clientName} — ${productModelName || ''}`,
-          category: 'Preventas',
-          type: 'INGRESO',
-          means,
-          amount: amt,
-          operator: operador || vendedor || admin.id,
-          createdById: admin.id,
-        })
-      } catch (e) { console.error('[Preorders] asiento:', e) }
-    }
 
     return NextResponse.json(preOrder, { status: 201 })
   } catch (error) {

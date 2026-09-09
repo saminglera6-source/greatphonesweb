@@ -11,9 +11,12 @@ interface PreEntrega {
   clientDni?: string
   clientPhone?: string
   productModelName: string | null
+  productStorage?: string | null
+  productColor?: string | null
   price: number
   saldo?: number
   status: string
+  tieneEquipo?: boolean
   expectedDeliveryStart?: string
   expectedDeliveryEnd?: string
   notes?: string
@@ -61,6 +64,12 @@ export default function EntregaClient() {
   const [usd, setUsd] = useState('')
   const [dolarCompra, setDolarCompra] = useState(1000)
   const [obs, setObs] = useState('')
+  // Datos del equipo, si la preventa todavía no tiene compra vinculada
+  const [eqImei, setEqImei] = useState('')
+  const [eqCosto, setEqCosto] = useState('')
+  const [eqProveedor, setEqProveedor] = useState('')
+  // Confirmación explícita para entregar dejando saldo (regla 45)
+  const [confirmarDeuda, setConfirmarDeuda] = useState(false)
   const [step, setStep] = useState(1)
   const [maxStep, setMaxStep] = useState(1)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -118,6 +127,7 @@ export default function EntregaClient() {
 
   const sel = preorders.find(p => p.id === nPre)
   const saldo = sel ? (sel.saldo ?? sel.price) : 0
+  const faltaEquipo = !!sel && sel.tieneEquipo === false
   const usdPesos = Math.round((parseInt(usd) || 0) * dolarCompra)
   const totalIngresado =
     (parseInt(efec) || 0) + (parseInt(transf) || 0) + (parseInt(cuotas) || 0) + usdPesos
@@ -131,8 +141,12 @@ export default function EntregaClient() {
         preorders.length === 0
           ? 'No hay preventas pendientes de entrega'
           : 'Seleccioná la preventa a entregar'
+    if (p === 1 && faltaEquipo && !(parseInt(eqCosto) >= 0))
+      e.eqCosto = 'Ingresá el costo del equipo (esta preventa no tiene compra cargada)'
     if (p === 2 && totalIngresado > saldo + 1)
       e.cobros = `Lo que cobrás ahora (${fmt(totalIngresado)}) supera el saldo (${fmt(saldo)})`
+    if (p === 2 && restante > 1 && !confirmarDeuda)
+      e.cobros = `Queda un saldo de ${fmt(restante)}. Confirmá "entregar con deuda" para continuar.`
     return e
   }
 
@@ -181,6 +195,10 @@ export default function EntregaClient() {
     setCuotas('')
     setUsd('')
     setObs('')
+    setEqImei('')
+    setEqCosto('')
+    setEqProveedor('')
+    setConfirmarDeuda(false)
     setFecha(new Date().toISOString().split('T')[0])
     setStep(1)
     setMaxStep(1)
@@ -224,6 +242,16 @@ export default function EntregaClient() {
           usd: parseInt(usd) || 0,
           obs,
           operador,
+          confirmarDeuda,
+          equipo: faltaEquipo
+            ? {
+                imei: eqImei.trim() || null,
+                costo: parseInt(eqCosto) || 0,
+                proveedor: eqProveedor.trim() || null,
+                color: sel?.productColor || null,
+                storage: sel?.productStorage || null,
+              }
+            : null,
         }),
       })
       const d = await r.json()
@@ -803,6 +831,73 @@ export default function EntregaClient() {
                   ))}
                 </dl>
               )}
+
+              {faltaEquipo && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    background: '#FEF9F3',
+                    border: '1px solid #F6D9B8',
+                    borderRadius: 9,
+                    padding: '12px 14px',
+                  }}
+                >
+                  <p style={{ margin: 0, fontSize: 12.5, fontWeight: 700, color: '#9A5B0C' }}>
+                    Esta preventa no tiene compra cargada
+                  </p>
+                  <p style={{ margin: '3px 0 8px', fontSize: 12, color: '#8A6A45' }}>
+                    Se creará la compra &laquo;Reservado Preventa&raquo; con estos datos y su asiento de
+                    egreso.
+                  </p>
+                  <label htmlFor="eq-costo" style={{ ...labelStyle, marginTop: 6 }}>
+                    Costo del equipo *
+                  </label>
+                  <input
+                    id="eq-costo"
+                    type="number"
+                    min={0}
+                    className="cw-input"
+                    style={{ ...inputStyle, ...(errors.eqCosto ? inputErrorStyle : {}) }}
+                    value={eqCosto}
+                    onChange={e => {
+                      setEqCosto(e.target.value)
+                      limpiarError('eqCosto')
+                    }}
+                    onBlur={() => validarEnBlur('eqCosto')}
+                  />
+                  {errors.eqCosto && (
+                    <p style={{ fontSize: 12, color: '#DC2626', margin: '5px 0 0' }}>{errors.eqCosto}</p>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div>
+                      <label htmlFor="eq-imei" style={labelStyle}>
+                        IMEI / N° serie
+                      </label>
+                      <input
+                        id="eq-imei"
+                        className="cw-input"
+                        style={inputStyle}
+                        value={eqImei}
+                        onChange={e => setEqImei(e.target.value)}
+                        placeholder="opcional"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="eq-prov" style={labelStyle}>
+                        Proveedor
+                      </label>
+                      <input
+                        id="eq-prov"
+                        className="cw-input"
+                        style={inputStyle}
+                        value={eqProveedor}
+                        onChange={e => setEqProveedor(e.target.value)}
+                        placeholder="opcional"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </fieldset>
           )}
 
@@ -949,11 +1044,42 @@ export default function EntregaClient() {
                     {errors.cobros}
                   </p>
                 )
+              ) : restante > 1 ? (
+                <div
+                  style={{
+                    marginTop: 10,
+                    background: '#FEF9F3',
+                    border: `1px solid ${errors.cobros ? '#F5B7B1' : '#F6D9B8'}`,
+                    borderRadius: 9,
+                    padding: '10px 12px',
+                  }}
+                >
+                  <label
+                    style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontSize: 12.5, color: '#8A5A18' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={confirmarDeuda}
+                      onChange={e => {
+                        setConfirmarDeuda(e.target.checked)
+                        limpiarError('cobros')
+                      }}
+                      style={{ marginTop: 2 }}
+                    />
+                    <span>
+                      Entregar con deuda: el cliente queda debiendo <b>{fmt(restante)}</b>. La preventa
+                      queda en &laquo;Entregado con saldo&raquo;.
+                    </span>
+                  </label>
+                  {errors.cobros && (
+                    <p style={{ fontSize: 12, color: '#DC2626', margin: '6px 0 0', fontWeight: 600 }}>
+                      {errors.cobros}
+                    </p>
+                  )}
+                </div>
               ) : (
                 <p style={{ fontSize: 12, color: '#186A3B', margin: '8px 0 0' }}>
-                  {restante > 1
-                    ? `Queda un saldo de ${fmt(restante)} para cobrar más adelante.`
-                    : 'El saldo queda cubierto por completo con este cobro.'}
+                  El saldo queda cubierto por completo con este cobro.
                 </p>
               )}
             </fieldset>

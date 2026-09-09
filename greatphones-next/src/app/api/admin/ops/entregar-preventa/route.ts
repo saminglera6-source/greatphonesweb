@@ -1,21 +1,35 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-guard'
-import { registerEntry } from '@/lib/accounting'
 import { dolarActual } from '@/lib/dolar-server'
+import {
+  entregarPreventa,
+  PreventaError,
+  saldoPendiente,
+  normalizeStatus,
+  PENDIENTE_ENTREGA,
+} from '@/lib/preventas'
 import { z } from 'zod'
 
 const EntregaSchema = z.object({
   preOrderId: z.string().min(1, 'Seleccioná una preventa'),
-  inventoryItemId: z.string().optional(),
   fecha: z.string().optional(),
   efectivo: z.number().int().min(0).default(0),
   transferencia: z.number().int().min(0).default(0),
   cuotas: z.number().int().min(0).default(0),
   usd: z.number().min(0).default(0),
-  accesorios: z
-    .array(z.object({ nombre: z.string(), precio: z.number().int().default(0) }))
-    .optional(),
+  accesorios: z.array(z.object({ nombre: z.string(), precio: z.number().int().default(0) })).optional(),
+  equipo: z
+    .object({
+      imei: z.string().optional().nullable(),
+      costo: z.number().int().min(0),
+      proveedor: z.string().optional().nullable(),
+      color: z.string().optional().nullable(),
+      storage: z.string().optional().nullable(),
+    })
+    .optional()
+    .nullable(),
+  confirmarDeuda: z.boolean().optional(),
   obs: z.string().optional(),
   operador: z.string().optional(),
 })
@@ -23,15 +37,22 @@ const EntregaSchema = z.object({
 export async function GET(request: Request) {
   try {
     await requireAdmin(request)
-    // Preventas con compra lista o saldo, pendientes de entrega
     const preorders = await prisma.preOrder.findMany({
-      where: { deletedAt: null, status: { in: ['COMPRADO', 'PENDING', 'ENTREGADO_SALDO'] } },
+      where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: { product: true },
+      take: 200,
+      include: { product: true, inventoryItem: { select: { id: true, imei: true, modelName: true } } },
     })
-    // Calcular saldo pendiente: price - (cobradoApprox store en metadata? usar price como referencia)
-    return NextResponse.json(preorders.map(p => ({ ...p, saldo: p.price })))
+    const usdRate = (await dolarActual()).compra || 1000
+    const pendientes = preorders
+      .map(p => ({ ...p, status: normalizeStatus(p.status) }))
+      .filter(p => PENDIENTE_ENTREGA.includes(p.status))
+      .map(p => ({
+        ...p,
+        saldo: saldoPendiente(p, usdRate),
+        tieneEquipo: !!p.inventoryItemId,
+      }))
+    return NextResponse.json(pendientes)
   } catch (error) {
     console.error('[Ops Entrega GET]', error)
     return NextResponse.json({ error: 'Error al obtener preventas para entrega' }, { status: 500 })
@@ -50,84 +71,25 @@ export async function POST(request: Request) {
       )
     const d = parsed.data
 
-    const pre = await prisma.preOrder.findUnique({ where: { id: d.preOrderId } })
-    if (!pre) return NextResponse.json({ error: 'Preventa no encontrada' }, { status: 404 })
-
-    const accs = (d.accesorios || []).filter(a => a.nombre)
-    const totalAcc = accs.reduce((s, a) => s + a.precio, 0)
-    if (totalAcc > 0 && !d.inventoryItemId)
-      return NextResponse.json(
-        { error: 'Para entregar con acceso esos, seleccioná el equipo' },
-        { status: 400 },
-      )
-
-    // Cobro del saldo
-    const saldo = pre.price || 0
-    const usdRate = (await dolarActual()).compra || 1000
-    const cobradoAhoraPesos =
-      d.efectivo + d.transferencia + d.cuotas + Math.round((d.usd || 0) * usdRate)
-
-    // Marcar el equipo como vendido si se eligió
-    if (d.inventoryItemId) {
-      await prisma.inventoryItem
-        .update({
-          where: { id: d.inventoryItemId },
-          data: { status: 'SOLD', soldAt: new Date(), soldById: admin.id },
-        })
-        .catch(e => console.error('[Ops Entrega] stock:', e))
-    }
-
-    const numero = 'PRE-ENTREGA-' + Date.now().toString().slice(-7)
-
-    // Asientos del saldo cobrado (incluye USD)
-    const medios: Array<{
-      m: string
-      v: number
-      pm: 'EFECTIVO' | 'TRANSFERENCIA' | 'CUOTAS' | 'USD'
-      esUSD?: boolean
-    }> = [
-      { m: 'Efectivo', v: d.efectivo, pm: 'EFECTIVO' as const },
-      { m: 'Transferencia', v: d.transferencia, pm: 'TRANSFERENCIA' as const },
-      { m: 'Cuotas', v: d.cuotas, pm: 'CUOTAS' as const },
-    ]
-    if (d.usd && d.usd > 0)
-      medios.push({ m: 'USD', v: Number(d.usd), pm: 'USD' as const, esUSD: true })
-    for (const x of medios) {
-      if (x.esUSD ? (x.v || 0) <= 0 : x.v <= 0) continue
-      await registerEntry({
-        source: 'PREVENTA_ENTREGA',
-        operationId: pre.code,
-        description: `Entrega preventa ${pre.code} — saldo cobrado`,
-        category: 'VENTA_PROPIA',
-        type: 'INGRESO',
-        means: x.pm,
-        amount: x.esUSD ? 0 : x.v,
-        amountUsd: x.esUSD ? x.v : null,
-        operator: d.operador || admin.id,
-        createdById: admin.id,
-      }).catch(e => console.error('[Ops Entrega] asiento:', e))
-    }
-
-    await prisma.preOrder.update({
-      where: { id: pre.id },
-      data: {
-        status: 'DELIVERED',
-        deliveredAt: new Date(),
-        notes: (pre.notes || '') + ` | Entregado ${new Date().toISOString()}`,
-      },
+    const res = await entregarPreventa({
+      preOrderId: d.preOrderId,
+      cobro: { efectivo: d.efectivo, transferencia: d.transferencia, cuotas: d.cuotas, usd: d.usd },
+      accesorios: d.accesorios,
+      equipo: d.equipo || null,
+      confirmarDeuda: d.confirmarDeuda,
+      fecha: d.fecha,
+      obs: d.obs,
+      operador: d.operador,
+      createdById: admin.id,
     })
 
-    return NextResponse.json(
-      {
-        numero,
-        preventa: pre.code,
-        saldo,
-        cobradoAhora: cobradoAhoraPesos,
-        accesorios: totalAcc,
-      },
-      { status: 201 },
-    )
+    return NextResponse.json(res, { status: 201 })
   } catch (error) {
+    if (error instanceof PreventaError)
+      return NextResponse.json(
+        { error: error.message, needsConfirm: error.status === 409 },
+        { status: error.status },
+      )
     console.error('[Ops Entrega POST]', error)
     return NextResponse.json({ error: 'Error al registrar la entrega' }, { status: 500 })
   }
@@ -148,7 +110,6 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Preventa no encontrada' }, { status: 404 })
     }
 
-    // Registrar motivo de eliminación en notas
     const notasActualizadas =
       (pre.notes || '') +
       ` | Eliminada ${new Date().toISOString()} por ${operador || admin.id} — Motivo: ${motivo || 'Sin especificar'}`
@@ -157,11 +118,14 @@ export async function DELETE(request: Request) {
       where: { id: pre.id },
       data: {
         deletedAt: new Date(),
+        deletedBy: operador || admin.id,
+        deleteReason: motivo || null,
         notes: notasActualizadas,
       },
     })
 
-    // Eliminar los asientos contables asociados para que la ganancia deje de sumar en Comisiones
+    // TODO (Fase 3 — gobierno de anulación): marcar los asientos ANULADO en vez
+    // de borrarlos. Por ahora se eliminan para que dejen de sumar en Caja.
     await prisma.accountingEntry.deleteMany({ where: { operationId: pre.code } }).catch(() => {})
 
     return NextResponse.json({ success: true, code: pre.code }, { status: 200 })

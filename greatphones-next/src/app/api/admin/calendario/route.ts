@@ -56,9 +56,15 @@ export async function GET(request: Request) {
             status: { in: ['PENDING', 'DIAGNOSIS', 'APPROVED', 'IN_PROGRESS', 'THIRD_PARTY'] },
           },
         }),
-        prisma.preOrder.count({ where: { deletedAt: null, status: { in: ['PENDING'] } } }),
         prisma.preOrder.count({
-          where: { deletedAt: null, status: { in: ['PAID', 'CONFIRMED'] }, deliveredAt: null },
+          where: { deletedAt: null, status: { in: ['ESPERANDO_COMPRA', 'PENDING'] } },
+        }),
+        prisma.preOrder.count({
+          where: {
+            deletedAt: null,
+            status: { in: ['COMPRADO', 'ENTREGADO_SALDO', 'PAID', 'CONFIRMED'] },
+            deliveredAt: null,
+          },
         }),
         prisma.quote.count({
           where: { deletedAt: null, status: { in: ['PENDING', 'REVIEWING'] } },
@@ -98,11 +104,13 @@ export async function GET(request: Request) {
         })
     }
 
-    // 2) Preventas pendientes / por entregar (PENDING, PAID, CONFIRMED, COMPRADO)
+    // 2) Preventas pendientes / por entregar (canónicos + alias legacy)
     const preventas = await prisma.preOrder.findMany({
       where: {
         deletedAt: null,
-        status: { in: ['PENDING', 'PAID', 'CONFIRMED', 'COMPRADO'] },
+        status: {
+          in: ['ESPERANDO_COMPRA', 'COMPRADO', 'ENTREGADO_SALDO', 'PENDING', 'PAID', 'CONFIRMED'],
+        },
       },
       orderBy: { expectedDeliveryStart: 'asc' },
       take: 500,
