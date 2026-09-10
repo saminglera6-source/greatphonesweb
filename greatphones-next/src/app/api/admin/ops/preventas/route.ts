@@ -11,7 +11,6 @@ const PreventaSchema = z.object({
   cliente: z.string().min(1, 'El cliente es obligatorio'),
   cuil: z.string().optional(),
   tel: z.string().optional(),
-  vendedor: z.preprocess(v => v ?? '', z.string().min(1, 'Ingresá el nombre del vendedor')),
   precioVenta: z.number().int().min(1, 'El precio pactado debe ser > 0'),
   efectivo: z.number().int().min(0).default(0),
   transferencia: z.number().int().min(0).default(0),
@@ -65,7 +64,9 @@ export async function POST(request: Request) {
       modelo: d.modelo,
       precioVenta: d.precioVenta,
       cobro: { efectivo: d.efectivo, transferencia: d.transferencia, cuotas: d.cuotas, usd: d.usd },
-      vendedor: d.vendedor,
+      // "Vendedor" se unificó con "operador": es la misma persona. Se guarda
+      // en PreOrder.sellerName para no romper reportes ni la ficha de cliente.
+      vendedor: d.operador,
       operador: d.operador,
       createdById: admin.id,
       fechaDesde: d.fechaDesde,

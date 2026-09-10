@@ -143,16 +143,16 @@ export async function GET(request: Request) {
     const gananciaTeorica = ventas.reduce((s, v) => s + (v.price - v.cost), 0)
     const gananciaCobrada = ventas.reduce((s, v) => s + (v.profitReal || 0), 0)
 
-    const porVendedorMap = new Map<string, { cantidad: number; facturado: number; ganancia: number }>()
+    const porOperadorMap = new Map<string, { cantidad: number; facturado: number; ganancia: number }>()
     for (const v of ventas) {
       const k = v.operator || 'SIN_OPERADOR'
-      const cur = porVendedorMap.get(k) || { cantidad: 0, facturado: 0, ganancia: 0 }
+      const cur = porOperadorMap.get(k) || { cantidad: 0, facturado: 0, ganancia: 0 }
       cur.cantidad++
       cur.facturado += v.price
       cur.ganancia += v.profitReal || 0
-      porVendedorMap.set(k, cur)
+      porOperadorMap.set(k, cur)
     }
-    const porVendedor = [...porVendedorMap.entries()]
+    const porOperador = [...porOperadorMap.entries()]
       .map(([operador, v]) => ({ operador, ...v }))
       .sort((a, b) => b.facturado - a.facturado)
 
@@ -182,7 +182,7 @@ export async function GET(request: Request) {
         propias: ventas.filter(v => v.originType !== 'consignacion').length,
         consignacion: ventas.filter(v => v.originType === 'consignacion').length,
       },
-      porVendedor,
+      porOperador,
       preventasPorEstado: [...preventasPorEstado.entries()].map(([estado, v]) => ({ estado, ...v })),
     }
 

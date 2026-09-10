@@ -28,7 +28,7 @@ interface Producto {
 
 const OPERADORES = ['Martin', 'Maca', 'Sam', 'Eva', 'Buda']
 const TOTAL = 5
-const STEPS = ['Vendedor y equipo', 'Cliente', 'Accesorios', 'Precio y cobro', 'Confirmar']
+const STEPS = ['Operador y equipo', 'Cliente', 'Accesorios', 'Precio y cobro', 'Confirmar']
 
 function fmt(n: number) {
   return '$' + (n || 0).toLocaleString('es-AR')
@@ -63,7 +63,6 @@ export default function VentasClient() {
   >([])
   const [accSel, setAccSel] = useState('')
   const [operador, setOperador] = useState('')
-  const [vendedor, setVendedor] = useState('')
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0])
   const [cliente, setCliente] = useState('')
   const [cuil, setCuil] = useState('')
@@ -252,7 +251,6 @@ export default function VentasClient() {
     setAccesorios([{ nombre: '', precio: '' }])
     setAccSel('')
     setRegalos(true)
-    setVendedor('')
     setFecha(new Date().toISOString().split('T')[0])
     setStep(1)
     setMaxStep(1)
@@ -290,7 +288,6 @@ export default function VentasClient() {
           cliente,
           cuil,
           tel,
-          vendedor,
           efectivo: parseInt(efec) || 0,
           transferencia: parseInt(transf) || 0,
           cuotas: parseInt(cuotas) || 0,
@@ -383,7 +380,6 @@ export default function VentasClient() {
 
   const resumen: [string, string][] = [
     ['Operador', operador || '—'],
-    ['Vendedor', vendedor || '—'],
     ['Fecha', fecha],
     [
       'Equipo',
@@ -696,18 +692,6 @@ export default function VentasClient() {
                   {errors.operador}
                 </p>
               )}
-
-              <label htmlFor="vendedor" style={labelStyle}>
-                Vendedor
-              </label>
-              <input
-                {...fieldProps('vendedor')}
-                className="cw-input"
-                value={vendedor}
-                onChange={e => setVendedor(e.target.value)}
-                placeholder="Quién atendió (si no es el operador)"
-                autoComplete="off"
-              />
 
               <label htmlFor="opEquipo" style={labelStyle}>
                 Equipo a vender (stock real) *

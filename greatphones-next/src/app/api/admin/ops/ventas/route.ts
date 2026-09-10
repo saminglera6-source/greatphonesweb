@@ -12,7 +12,6 @@ const VentaSchema = z.object({
   cliente: z.string().min(1, 'El cliente es obligatorio'),
   cuil: z.string().optional(),
   tel: z.string().optional(),
-  vendedor: z.string().optional(),
   efectivo: z.number().int().min(0).default(0),
   transferencia: z.number().int().min(0).default(0),
   cuotas: z.number().int().min(0).default(0),
@@ -67,7 +66,8 @@ export async function POST(request: Request) {
       cliente: d.cliente,
       cuil: d.cuil,
       tel: d.tel,
-      vendedor: d.vendedor,
+      // "Vendedor" se unificó con "operador": es la misma persona.
+      vendedor: d.operador,
       operador: d.operador,
       createdById: admin.id,
       cobro: { efectivo: d.efectivo, transferencia: d.transferencia, cuotas: d.cuotas, usd: d.usd },

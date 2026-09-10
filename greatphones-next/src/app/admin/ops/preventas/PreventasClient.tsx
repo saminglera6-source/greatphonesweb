@@ -77,7 +77,6 @@ const labelStyle: React.CSSProperties = {
 
 export default function PreventasClient() {
   const [operador, setOperador] = useState('')
-  const [vendedor, setVendedor] = useState('Martin')
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0])
   const [modelo, setModelo] = useState('')
   const [cliente, setCliente] = useState('')
@@ -208,7 +207,6 @@ export default function PreventasClient() {
   const validarPaso = (p: number): Record<string, string> => {
     const e: Record<string, string> = {}
     if (p === 1 && !operador) e.operador = 'Seleccioná el operador'
-    if (p === 1 && !vendedor.trim()) e.vendedor = 'Ingresá el nombre del vendedor'
     if (p === 2 && !modelo.trim()) e.modelo = 'Ingresá el modelo solicitado'
     if (p === 2 && !cliente.trim()) e.cliente = 'Ingresá el nombre del cliente'
     if (p === 4) {
@@ -351,7 +349,6 @@ export default function PreventasClient() {
           cliente,
           cuil,
           tel,
-          vendedor,
           precioVenta: +precioVenta,
           efectivo: parseInt(efec) || 0,
           transferencia: parseInt(transf) || 0,
@@ -443,7 +440,6 @@ export default function PreventasClient() {
 
   const resumen: [string, string][] = [
     ['Operador', operador || '—'],
-    ['Vendedor', vendedor || '—'],
     ['Fecha', fecha],
     ['Modelo solicitado', modeloFinal || '—'],
     ['Cliente', cliente || '—'],
@@ -791,63 +787,37 @@ export default function PreventasClient() {
               <legend style={{ fontSize: 15, fontWeight: 800, color: '#181B2E', marginBottom: 2 }}>
                 ¿Quién toma el pedido?
               </legend>
-              <div className="cw-grid" style={{ marginTop: 12 }}>
-                <div>
-                  <label htmlFor="operador" style={{ ...labelStyle, marginTop: 0 }}>
-                    Operador *
-                  </label>
-                  <select
-                    {...fieldProps('operador')}
-                    className="cw-input"
-                    value={operador}
-                    onChange={e => {
-                      setOperador(e.target.value)
-                      limpiarError('operador')
-                    }}
-                    onBlur={() => validarEnBlur('operador')}
-                  >
-                    <option value="" disabled>
-                      Seleccionar...
+              <div style={{ marginTop: 12 }}>
+                <label htmlFor="operador" style={{ ...labelStyle, marginTop: 0 }}>
+                  Operador *
+                </label>
+                <select
+                  {...fieldProps('operador')}
+                  className="cw-input"
+                  value={operador}
+                  onChange={e => {
+                    setOperador(e.target.value)
+                    limpiarError('operador')
+                  }}
+                  onBlur={() => validarEnBlur('operador')}
+                >
+                  <option value="" disabled>
+                    Seleccionar...
+                  </option>
+                  {OPERADORES.map(o => (
+                    <option key={o} value={o}>
+                      {o}
                     </option>
-                    {OPERADORES.map(o => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.operador && (
-                    <p
-                      id="operador-error"
-                      style={{ fontSize: 12, color: '#DC2626', margin: '5px 0 0' }}
-                    >
-                      {errors.operador}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label htmlFor="vendedor" style={{ ...labelStyle, marginTop: 0 }}>
-                    Vendedor *
-                  </label>
-                  <input
-                    {...fieldProps('vendedor')}
-                    className="cw-input"
-                    value={vendedor}
-                    onChange={e => {
-                      setVendedor(e.target.value)
-                      limpiarError('vendedor')
-                    }}
-                    onBlur={() => validarEnBlur('vendedor')}
-                    autoComplete="off"
-                  />
-                  {errors.vendedor && (
-                    <p
-                      id="vendedor-error"
-                      style={{ fontSize: 12, color: '#DC2626', margin: '5px 0 0' }}
-                    >
-                      {errors.vendedor}
-                    </p>
-                  )}
-                </div>
+                  ))}
+                </select>
+                {errors.operador && (
+                  <p
+                    id="operador-error"
+                    style={{ fontSize: 12, color: '#DC2626', margin: '5px 0 0' }}
+                  >
+                    {errors.operador}
+                  </p>
+                )}
               </div>
 
               <label htmlFor="fecha" style={labelStyle}>

@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       productId, customName, customPrice,
       productModelName, productStorage, productColor, productCondition,
       expectedDeliveryStart, expectedDeliveryEnd,
-      notes, vendedor,
+      notes, vendedor, operador,
     } = body
 
     if (!clientName || !clientName.trim()) {
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
         price: customPrice ? Number(customPrice) : 0,
         collectedArs: 0,
         collectedUsd: 0,
-        sellerName: vendedor || null,
+        sellerName: operador || vendedor || null,
         status: PRE.ESPERANDO_COMPRA,
         expectedDeliveryStart: expectedDeliveryStart ? new Date(expectedDeliveryStart) : null,
         expectedDeliveryEnd: expectedDeliveryEnd ? new Date(expectedDeliveryEnd) : null,

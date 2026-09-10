@@ -430,9 +430,9 @@ export default function ReportesClient() {
                   ))}
                 </div>
                 <div style={{ background: '#fff', border: '1px solid #E6E7F0', borderRadius: 12, padding: 16 }}>
-                  <h3 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#181B2E' }}>Por vendedor</h3>
-                  {detalle.porVendedor.length === 0 && <p style={{ fontSize: 12, color: '#94A3B8' }}>Sin ventas</p>}
-                  {detalle.porVendedor.map((v: any) => (
+                  <h3 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#181B2E' }}>Por operador</h3>
+                  {detalle.porOperador.length === 0 && <p style={{ fontSize: 12, color: '#94A3B8' }}>Sin ventas</p>}
+                  {detalle.porOperador.map((v: any) => (
                     <div key={v.operador} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderBottom: '1px solid #F1F3F7' }}>
                       <span>{v.operador} <span style={{ color: '#94A3B8' }}>({v.cantidad})</span></span>
                       <span>{fmtP(v.facturado)} · <strong style={{ color: '#0F9D58' }}>{fmtP(v.ganancia)}</strong></span>

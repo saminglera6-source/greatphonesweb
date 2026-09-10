@@ -191,7 +191,7 @@ export async function registrarPreventa(input: RegistrarPreventaInput) {
         price: input.precioVenta,
         collectedArs,
         collectedUsd,
-        sellerName: input.vendedor || null,
+        sellerName: input.operador || input.vendedor || null,
         status: PRE.ESPERANDO_COMPRA,
         source: input.source || 'local',
         notes: input.obs || null,
