@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminTopbar from '@/components/AdminTopbar'
 import { fetchDolar } from '@/app/admin/precios/dolar'
+import { MoneyInput, UsdInput, CuilInput, TelInput } from '@/components/campos'
+import { parseMiles, parseUsd, formatMilesInput } from '@/lib/formato'
 
 const OPERADORES = ['Martin', 'Maca', 'Sam', 'Eva', 'Buda']
 const TOTAL = 5
@@ -177,7 +179,7 @@ export default function PreventasClient() {
     if (modeloEsOtro || !modelo) return
     setStorageSel('')
     if (variantesModelo.length === 1) {
-      setPrecioVenta(String(variantesModelo[0].preventaARS || ''))
+      setPrecioVenta(formatMilesInput(String(variantesModelo[0].preventaARS || '')))
       setPrecioAuto(true)
     } else if (variantesModelo.length === 0) {
       setPrecioAuto(false)
@@ -192,17 +194,17 @@ export default function PreventasClient() {
       p => p.almacenamiento.trim().toLowerCase() === storageSel.trim().toLowerCase(),
     )
     if (v) {
-      setPrecioVenta(String(v.preventaARS || ''))
+      setPrecioVenta(formatMilesInput(String(v.preventaARS || '')))
       setPrecioAuto(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageSel])
 
   const tot =
-    (parseInt(efec) || 0) +
-    (parseInt(transf) || 0) +
-    (parseInt(cuotas) || 0) +
-    Math.round((parseInt(usd) || 0) * dolarCompra)
+    parseMiles(efec) +
+    parseMiles(transf) +
+    parseMiles(cuotas) +
+    Math.round(parseUsd(usd) * dolarCompra)
 
   const validarPaso = (p: number): Record<string, string> => {
     const e: Record<string, string> = {}
@@ -210,7 +212,7 @@ export default function PreventasClient() {
     if (p === 2 && !modelo.trim()) e.modelo = 'Ingresá el modelo solicitado'
     if (p === 2 && !cliente.trim()) e.cliente = 'Ingresá el nombre del cliente'
     if (p === 4) {
-      if (!precioVenta || +precioVenta <= 0) e.precioVenta = 'El precio pactado debe ser mayor a 0'
+      if (parseMiles(precioVenta) <= 0) e.precioVenta = 'El precio pactado debe ser mayor a 0'
       else if (tot <= 0) e.cobros = 'Debe registrarse al menos un cobro'
     }
     return e
@@ -349,11 +351,11 @@ export default function PreventasClient() {
           cliente,
           cuil,
           tel,
-          precioVenta: +precioVenta,
-          efectivo: parseInt(efec) || 0,
-          transferencia: parseInt(transf) || 0,
-          cuotas: parseInt(cuotas) || 0,
-          usd: parseInt(usd) || 0,
+          precioVenta: parseMiles(precioVenta),
+          efectivo: parseMiles(efec),
+          transferencia: parseMiles(transf),
+          cuotas: parseMiles(cuotas),
+          usd: parseUsd(usd),
           fechaDesde,
           fechaHasta,
           obs,
@@ -448,7 +450,7 @@ export default function PreventasClient() {
       'Entrega prometida',
       `${new Date(fechaDesde + 'T12:00:00').toLocaleDateString('es-AR')} – ${new Date(fechaHasta + 'T12:00:00').toLocaleDateString('es-AR')}`,
     ],
-    ['Precio pactado', fmt(+precioVenta || 0)],
+    ['Precio pactado', fmt(parseMiles(precioVenta))],
     [
       'Cobro',
       [
@@ -992,29 +994,24 @@ export default function PreventasClient() {
                   <label htmlFor="cuil" style={{ ...labelStyle, marginTop: 0 }}>
                     CUIL
                   </label>
-                  <input
+                  <CuilInput
                     id="cuil"
                     className="cw-input"
                     style={inputStyle}
                     value={cuil}
-                    onChange={e => setCuil(e.target.value)}
-                    placeholder="20-12345678-9"
-                    inputMode="numeric"
+                    onChange={setCuil}
                   />
                 </div>
                 <div>
                   <label htmlFor="tel" style={{ ...labelStyle, marginTop: 0 }}>
                     Teléfono
                   </label>
-                  <input
+                  <TelInput
                     id="tel"
                     className="cw-input"
                     style={inputStyle}
                     value={tel}
-                    onChange={e => setTel(e.target.value)}
-                    placeholder="11 2345 6789"
-                    inputMode="tel"
-                    autoComplete="tel"
+                    onChange={setTel}
                   />
                 </div>
               </div>
@@ -1133,14 +1130,12 @@ export default function PreventasClient() {
                   </span>
                 )}
               </label>
-              <input
-                type="number"
-                min={0}
+              <MoneyInput
                 {...fieldProps('precioVenta')}
                 className="cw-input"
                 value={precioVenta}
-                onChange={e => {
-                  setPrecioVenta(e.target.value)
+                onChange={v => {
+                  setPrecioVenta(v)
                   setPrecioAuto(false)
                   limpiarError('precioVenta')
                 }}
@@ -1181,19 +1176,25 @@ export default function PreventasClient() {
                     >
                       {lab}
                     </label>
-                    <input
-                      type="number"
-                      min={0}
-                      id={`cobro-${lab.toLowerCase()}`}
-                      className="cw-input"
-                      style={{ ...inputStyle, padding: 8 }}
-                      value={val}
-                      onChange={e => {
-                        set(e.target.value)
-                        limpiarError('cobros')
-                      }}
-                      placeholder="0"
-                    />
+                    {lab === 'USD' ? (
+                      <UsdInput
+                        id={`cobro-${lab.toLowerCase()}`}
+                        className="cw-input"
+                        style={{ ...inputStyle, padding: 8 }}
+                        value={val}
+                        onChange={v => { set(v); limpiarError('cobros') }}
+                        placeholder="0,00"
+                      />
+                    ) : (
+                      <MoneyInput
+                        id={`cobro-${lab.toLowerCase()}`}
+                        className="cw-input"
+                        style={{ ...inputStyle, padding: 8 }}
+                        value={val}
+                        onChange={v => { set(v); limpiarError('cobros') }}
+                        placeholder="0"
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -1218,8 +1219,8 @@ export default function PreventasClient() {
                 </span>
                 <span style={{ fontSize: 15, fontWeight: 800, color: '#186A3B' }}>
                   {fmt(tot)}
-                  {parseInt(usd) ? (
-                    <span style={{ fontSize: 11, fontWeight: 600 }}> (incluye {usd} USD)</span>
+                  {parseUsd(usd) ? (
+                    <span style={{ fontSize: 11, fontWeight: 600 }}> (incluye US$ {usd})</span>
                   ) : null}
                 </span>
               </div>

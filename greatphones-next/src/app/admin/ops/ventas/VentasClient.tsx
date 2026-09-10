@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminTopbar from '@/components/AdminTopbar'
 import { fetchDolar } from '@/app/admin/precios/dolar'
+import { MoneyInput, UsdInput, CuilInput, TelInput } from '@/components/campos'
+import { parseMiles, parseUsd } from '@/lib/formato'
 
 interface Producto {
   id: string
@@ -150,12 +152,12 @@ export default function VentasClient() {
       .catch(() => setServerMsg('No se pudo actualizar el listado de equipos.'))
   }
 
-  const totalAcc = accesorios.reduce((s, a) => s + (parseInt(a.precio) || 0), 0)
-  const precio = parseInt(precioVenta) || 0
+  const totalAcc = accesorios.reduce((s, a) => s + parseMiles(a.precio), 0)
+  const precio = parseMiles(precioVenta)
   const totalOperacion = precio + totalAcc
-  const usdPesos = Math.round((parseInt(usd) || 0) * dolarCompra)
+  const usdPesos = Math.round(parseUsd(usd) * dolarCompra)
   const totalCobrado =
-    (parseInt(efec) || 0) + (parseInt(transf) || 0) + (parseInt(cuotas) || 0) + usdPesos
+    parseMiles(efec) + parseMiles(transf) + parseMiles(cuotas) + usdPesos
   const diferencia = totalCobrado - totalOperacion
   const equipoSel = equipos.find(e => e.id === opEquipo)
 
@@ -288,13 +290,13 @@ export default function VentasClient() {
           cliente,
           cuil,
           tel,
-          efectivo: parseInt(efec) || 0,
-          transferencia: parseInt(transf) || 0,
-          cuotas: parseInt(cuotas) || 0,
-          usd: parseInt(usd) || 0,
+          efectivo: parseMiles(efec),
+          transferencia: parseMiles(transf),
+          cuotas: parseMiles(cuotas),
+          usd: parseUsd(usd),
           accesorios: accesorios
             .filter(a => a.nombre)
-            .map(a => ({ nombre: a.nombre, precio: parseInt(a.precio) || 0 })),
+            .map(a => ({ nombre: a.nombre, precio: parseMiles(a.precio) })),
           entregarRegalos: regalos,
           obs,
           operador,
@@ -822,27 +824,22 @@ export default function VentasClient() {
                   <label htmlFor="cuil" style={{ ...labelStyle, marginTop: 0 }}>
                     CUIL
                   </label>
-                  <input
+                  <CuilInput
                     {...fieldProps('cuil')}
                     className="cw-input"
                     value={cuil}
-                    onChange={e => setCuil(e.target.value)}
-                    placeholder="20-12345678-9"
-                    inputMode="numeric"
+                    onChange={setCuil}
                   />
                 </div>
                 <div>
                   <label htmlFor="tel" style={{ ...labelStyle, marginTop: 0 }}>
                     Teléfono
                   </label>
-                  <input
+                  <TelInput
                     {...fieldProps('tel')}
                     className="cw-input"
                     value={tel}
-                    onChange={e => setTel(e.target.value)}
-                    placeholder="11 2345 6789"
-                    inputMode="tel"
-                    autoComplete="tel"
+                    onChange={setTel}
                   />
                 </div>
               </div>
@@ -857,14 +854,12 @@ export default function VentasClient() {
               <label htmlFor="precioVenta" style={{ ...labelStyle, marginTop: 12 }}>
                 Precio del celular ($) *
               </label>
-              <input
-                type="number"
-                min={0}
+              <MoneyInput
                 {...fieldProps('precioVenta')}
                 className="cw-input"
                 value={precioVenta}
-                onChange={e => {
-                  setPrecioVenta(e.target.value)
+                onChange={v => {
+                  setPrecioVenta(v)
                   limpiarError('precioVenta')
                 }}
                 onBlur={() => validarEnBlur('precioVenta')}
@@ -924,19 +919,25 @@ export default function VentasClient() {
                     >
                       {lab}
                     </label>
-                    <input
-                      type="number"
-                      min={0}
-                      id={`cobro-${lab.toLowerCase()}`}
-                      className="cw-input"
-                      style={{ ...inputStyle, padding: 8 }}
-                      value={val}
-                      onChange={e => {
-                        set(e.target.value)
-                        limpiarError('cobros')
-                      }}
-                      placeholder="0"
-                    />
+                    {lab === 'USD' ? (
+                      <UsdInput
+                        id={`cobro-${lab.toLowerCase()}`}
+                        className="cw-input"
+                        style={{ ...inputStyle, padding: 8 }}
+                        value={val}
+                        onChange={v => { set(v); limpiarError('cobros') }}
+                        placeholder="0,00"
+                      />
+                    ) : (
+                      <MoneyInput
+                        id={`cobro-${lab.toLowerCase()}`}
+                        className="cw-input"
+                        style={{ ...inputStyle, padding: 8 }}
+                        value={val}
+                        onChange={v => { set(v); limpiarError('cobros') }}
+                        placeholder="0"
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -966,8 +967,8 @@ export default function VentasClient() {
                 </span>
                 <span style={{ fontSize: 15, fontWeight: 800, color: '#186A3B' }}>
                   {fmt(totalCobrado)}
-                  {parseInt(usd) ? (
-                    <span style={{ fontSize: 11, fontWeight: 600 }}> (incluye {usd} USD)</span>
+                  {parseUsd(usd) ? (
+                    <span style={{ fontSize: 11, fontWeight: 600 }}> (incluye US$ {usd})</span>
                   ) : null}
                 </span>
               </div>
@@ -1119,17 +1120,15 @@ export default function VentasClient() {
                         Precio ($)
                       </label>
                     )}
-                    <input
-                      type="number"
-                      min={0}
+                    <MoneyInput
                       id={`acc-precio-${i}`}
                       aria-label={i === 0 ? undefined : `Precio accesorio ${i + 1}`}
                       className="cw-input"
                       style={{ ...inputStyle, padding: 8 }}
                       value={a.precio}
-                      onChange={e => {
+                      onChange={v => {
                         const n = [...accesorios]
-                        n[i] = { ...n[i], precio: e.target.value }
+                        n[i] = { ...n[i], precio: v }
                         setAccesorios(n)
                       }}
                       placeholder="0"
