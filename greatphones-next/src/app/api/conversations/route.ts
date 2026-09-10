@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   try {
     const user = await requireSession(request)
     const conversations = await prisma.conversation.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, deletedAt: null },
       include: {
         messages: {
           orderBy: { createdAt: 'desc' },

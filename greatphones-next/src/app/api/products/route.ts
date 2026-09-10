@@ -204,13 +204,14 @@ export async function POST(request: Request) {
           where: {
             modelo: body.name,
             almacenamiento: body.storage || '',
+            deletedAt: null,
           },
           select: { imageUrl: true },
         })
         if (priceEntry?.imageUrl) imageUrl = priceEntry.imageUrl
         else {
           const fallback = await prisma.priceList.findFirst({
-            where: { modelo: body.name },
+            where: { modelo: body.name, deletedAt: null },
             orderBy: { almacenamiento: 'desc' },
             select: { imageUrl: true },
           })

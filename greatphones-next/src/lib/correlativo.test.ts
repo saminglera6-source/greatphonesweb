@@ -4,7 +4,10 @@ import { nextCorrelativo } from './correlativo'
 function fakeTx(count: number) {
   return {
     $executeRaw: vi.fn().mockResolvedValue(1),
-    sale: { count: vi.fn().mockResolvedValue(count) },
+    sale: {
+      count: vi.fn().mockResolvedValue(count),
+      findMany: vi.fn().mockResolvedValue(Array.from({ length: count }, (_, i) => ({ code: `X-${i}` }))),
+    },
   } as any
 }
 
@@ -28,6 +31,31 @@ describe('nextCorrelativo', () => {
 
   it('respeta el ancho de relleno', async () => {
     const tx = fakeTx(9999)
-    expect(await nextCorrelativo(tx, 'CMP', tx.sale, 4)).toBe('CMP-10000')
+    expect(await nextCorrelativo(tx, 'CMP', tx.sale, { pad: 4 })).toBe('CMP-10000')
+  })
+
+  it('con distinct cuenta valores únicos del campo, no filas', async () => {
+    const tx = fakeTx(2)
+    const n = await nextCorrelativo(tx, 'CAC', tx.sale, { distinct: true })
+    expect(n).toBe('CAC-0003')
+    expect(tx.sale.findMany).toHaveBeenCalledWith({
+      where: { code: { startsWith: 'CAC-' } },
+      distinct: ['code'],
+      select: { code: true },
+    })
+  })
+
+  it('acepta field y extraWhere para hojas compartidas (gastos)', async () => {
+    const tx = fakeTx(5)
+    await nextCorrelativo(tx, 'GST', tx.sale, {
+      distinct: true,
+      field: 'operationId',
+      extraWhere: { source: 'GASTO' },
+    })
+    expect(tx.sale.findMany).toHaveBeenCalledWith({
+      where: { source: 'GASTO', operationId: { startsWith: 'GST-' } },
+      distinct: ['operationId'],
+      select: { operationId: true },
+    })
   })
 })

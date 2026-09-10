@@ -21,6 +21,7 @@ type AuditableEntity =
   | 'PriceTradeIn'
   | 'CuotasConfig'
   | 'AppConfig'
+  | 'Conversation'
 
 const ENTITY_MODEL: Record<AuditableEntity, string> = {
   Product: 'product',
@@ -36,6 +37,7 @@ const ENTITY_MODEL: Record<AuditableEntity, string> = {
   PriceTradeIn: 'priceTradeIn',
   CuotasConfig: 'cuotasConfig',
   AppConfig: 'appConfig',
+  Conversation: 'conversation',
 }
 
 async function getEntitySnapshot(entityType: AuditableEntity, entityId: string) {

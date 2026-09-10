@@ -84,12 +84,20 @@ export async function POST(request: Request) {
           break
       }
 
-      await prisma.$transaction([
-        prisma.investor.update({
+      // Movimiento + asiento en una sola transacción: si el asiento falla,
+      // el movimiento y el nuevo capital se revierten (T-8).
+      // NOTA: la dirección del asiento acá NO respeta el ERP §5.8
+      // (RETIRO_CAPITAL y PAGO_RENDIMIENTO deberían ser EGRESO, no INGRESO/nada).
+      // Se conserva el comportamiento actual — el ajuste de dirección es un
+      // cambio de flujo de caja pendiente de confirmación.
+      const moneyIn = d.type === 'INGRESO_CAPITAL' || d.type === 'PAGO_RENDIMIENTO' || (d.type === 'AJUSTE' && d.amount > 0)
+
+      await prisma.$transaction(async tx => {
+        await tx.investor.update({
           where: { id: inv.id },
           data: { capital: newCapital, pending: newPending, paidTotal: inv.paidTotal },
-        }),
-        prisma.investorMovement.create({
+        })
+        await tx.investorMovement.create({
           data: {
             investorId: inv.id,
             type: d.type,
@@ -98,13 +106,8 @@ export async function POST(request: Request) {
             capitalAfter: newCapital,
             operator: d.operator || null,
           },
-        }),
-      ])
-
-      // Contabilizar el pago de rendimiento o ingreso/ajuste que mueve caja (Transferencia)
-      const moneyIn = d.type === 'INGRESO_CAPITAL' || d.type === 'PAGO_RENDIMIENTO' || (d.type === 'AJUSTE' && d.amount > 0)
-      if (moneyIn) {
-        try {
+        })
+        if (moneyIn) {
           await registerEntry({
             source: 'INVERSOR',
             description: `Inversor ${inv.name} — ${d.detail || d.type}`,
@@ -113,9 +116,9 @@ export async function POST(request: Request) {
             means: 'TRANSFERENCIA',
             amount: d.amount,
             operator: d.operator || null,
-          })
-        } catch (e) { console.error('[Investors] asiento:', e) }
-      }
+          }, tx)
+        }
+      })
 
       return NextResponse.json({ success: true })
     }

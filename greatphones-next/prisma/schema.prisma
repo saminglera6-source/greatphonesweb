@@ -492,6 +492,9 @@ model Conversation {
   status        ConvStatus     @default(OPEN)
   unreadByAdmin Int            @default(0)
   unreadByUser  Int            @default(0)
+  deletedAt     DateTime?
+  deletedBy     String?
+  deleteReason  String?
   admin         User?          @relation("AdminConversations", fields: [adminId], references: [id])
   user          User           @relation(fields: [userId], references: [id])
   messages      Message[]
@@ -1180,6 +1183,9 @@ model PriceList {
   updatedBy     String?
   updatedAt     DateTime     @updatedAt
   createdAt     DateTime     @default(now())
+  deletedAt     DateTime?
+  deletedBy     String?
+  deleteReason  String?
 
   @@index([category])
   @@index([modelo])
@@ -1202,6 +1208,9 @@ model PriceTradeIn {
   updatedBy String?
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+  deletedAt DateTime?
+  deletedBy String?
+  deleteReason String?
 
   @@index([modelo])
 }
@@ -1217,6 +1226,9 @@ model CuotasConfig {
   updatedBy   String?
   updatedAt   DateTime @updatedAt
   createdAt   DateTime @default(now())
+  deletedAt   DateTime?
+  deletedBy   String?
+  deleteReason String?
 }
 
 enum PriceCategory {

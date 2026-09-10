@@ -103,24 +103,23 @@ export async function PATCH(request: Request) {
       else if (deliveredAt) data.deliveredAt = new Date(deliveredAt)
     }
 
-    const updated = await prisma.repair.update({ where: { id }, data })
-    await auditar({
-      entityType: 'Repair',
-      entityId: id,
-      action: 'UPDATE',
-      reason: `Estado cambiado a ${status}${data.thirdParty ? ' (tercero)' : ''}${cost !== undefined ? ` · costo ${cost}` : ''}${thirdPartyCost !== undefined ? ` · costo tercero ${thirdPartyCost}` : ''}`,
-    }).catch(() => {})
+    // Entrega = cambio de estado + alta de garantía en una sola transacción
+    // (T-8): si la garantía falla, la reparación no queda "entregada" a medias.
+    const creaGarantia =
+      status === 'DELIVERED' && existing.status !== 'DELIVERED' && !existing.isDiagnosis
 
-    // Garantía de la reparación: 90 días desde la entrega (ERP §6.5 regla 61).
-    // Solo reparaciones reales (no diagnóstico), una sola vez.
-    if (status === 'DELIVERED' && existing.status !== 'DELIVERED' && !existing.isDiagnosis) {
-      try {
-        const yaTiene = await prisma.guarantee.findFirst({
+    const updated = await prisma.$transaction(async tx => {
+      const rep = await tx.repair.update({ where: { id }, data })
+
+      // Garantía de la reparación: 90 días desde la entrega (ERP §6.5 regla 61).
+      // Solo reparaciones reales (no diagnóstico), una sola vez.
+      if (creaGarantia) {
+        const yaTiene = await tx.guarantee.findFirst({
           where: { userId: existing.userId, product: { contains: existing.code } },
         })
         if (!yaTiene) {
           const start = (data.deliveredAt as Date) || new Date()
-          await prisma.guarantee.create({
+          await tx.guarantee.create({
             data: {
               userId: existing.userId,
               product: `Reparación ${existing.code} — ${existing.device}`,
@@ -132,10 +131,16 @@ export async function PATCH(request: Request) {
             },
           })
         }
-      } catch (e) {
-        console.error('[Taller Reparaciones] garantía:', e)
       }
-    }
+      return rep
+    })
+
+    await auditar({
+      entityType: 'Repair',
+      entityId: id,
+      action: 'UPDATE',
+      reason: `Estado cambiado a ${status}${data.thirdParty ? ' (tercero)' : ''}${cost !== undefined ? ` · costo ${cost}` : ''}${thirdPartyCost !== undefined ? ` · costo tercero ${thirdPartyCost}` : ''}`,
+    }).catch(() => {})
 
     return NextResponse.json(updated)
   } catch (error: any) {

@@ -18,6 +18,7 @@ export async function GET(request: Request) {
   try {
     await requireAdmin(request)
     const rows = await prisma.cuotasConfig.findMany({
+      where: { deletedAt: null },
       orderBy: [{ orden: 'asc' }, { cuotas: 'asc' }],
     })
     return NextResponse.json(rows)
@@ -33,9 +34,15 @@ export async function POST(request: Request) {
     const parsed = CuotaSchema.safeParse(body)
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || 'Datos inválidos' }, { status: 400 })
     const d = parsed.data
-    const row = await prisma.cuotasConfig.create({
-      data: { ...d, updatedBy: admin.id },
-    })
+    // `cuotas` es único: si ya hay un plan (incluso dado de baja) para ese
+    // número, se revive/actualiza en lugar de fallar contra el índice único.
+    const existente = await prisma.cuotasConfig.findUnique({ where: { cuotas: d.cuotas } })
+    const row = existente
+      ? await prisma.cuotasConfig.update({
+          where: { id: existente.id },
+          data: { ...d, updatedBy: admin.id, deletedAt: null, deletedBy: null, deleteReason: null },
+        })
+      : await prisma.cuotasConfig.create({ data: { ...d, updatedBy: admin.id } })
     return NextResponse.json(row, { status: 201 })
   } catch (error) {
     return handleRouteError(error)
@@ -79,6 +86,11 @@ export async function DELETE(request: Request) {
     if (motivo.length < 3) return NextResponse.json({ error: 'Indicá el motivo de la baja' }, { status: 400 })
     const previo = await prisma.cuotasConfig.findUnique({ where: { id } })
     if (!previo) return NextResponse.json({ error: 'Plan de cuotas no encontrado' }, { status: 404 })
+    // Soft-delete (ERP regla 1).
+    await prisma.cuotasConfig.update({
+      where: { id },
+      data: { deletedAt: new Date(), deletedBy: admin.email, deleteReason: motivo, activo: false, mostrar: false },
+    })
     await auditar({
       entityType: 'CuotasConfig',
       entityId: id,
@@ -88,7 +100,6 @@ export async function DELETE(request: Request) {
       createdById: admin.id,
       snapshot: previo,
     }).catch(() => {})
-    await prisma.cuotasConfig.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (error) {
     return handleRouteError(error)

@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   try {
     await requireAdmin(request)
     const rows = await prisma.priceTradeIn.findMany({
-      where: { active: true },
+      where: { active: true, deletedAt: null },
       orderBy: [{ orden: 'asc' }, { modelo: 'asc' }],
     })
     return NextResponse.json(rows)
@@ -87,6 +87,11 @@ export async function DELETE(request: Request) {
     if (motivo.length < 3) return NextResponse.json({ error: 'Indicá el motivo de la baja' }, { status: 400 })
     const previo = await prisma.priceTradeIn.findUnique({ where: { id } })
     if (!previo) return NextResponse.json({ error: 'Precio de toma no encontrado' }, { status: 404 })
+    // Soft-delete (ERP regla 1).
+    await prisma.priceTradeIn.update({
+      where: { id },
+      data: { deletedAt: new Date(), deletedBy: admin.email, deleteReason: motivo, active: false },
+    })
     await auditar({
       entityType: 'PriceTradeIn',
       entityId: id,
@@ -96,7 +101,6 @@ export async function DELETE(request: Request) {
       createdById: admin.id,
       snapshot: previo,
     }).catch(() => {})
-    await prisma.priceTradeIn.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (error) {
     return handleRouteError(error)

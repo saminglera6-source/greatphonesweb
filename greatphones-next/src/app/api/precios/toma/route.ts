@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     }
 
     const rows = await prisma.priceTradeIn.findMany({
-      where: { active: true },
+      where: { active: true, deletedAt: null },
       orderBy: [{ orden: 'asc' }, { modelo: 'asc' }],
       select: {
         id: true,

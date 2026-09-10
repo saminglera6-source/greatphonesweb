@@ -128,6 +128,7 @@ export async function POST(request: Request) {
       where: {
         category: 'CELULAR',
         modelo: d.modelo,
+        deletedAt: null,
         ...(d.storage ? { almacenamiento: d.storage } : {}),
       },
       orderBy: { almacenamiento: 'asc' },

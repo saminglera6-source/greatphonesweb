@@ -87,7 +87,7 @@ export async function calcularPresupuesto(
     return { trabajos: [], precioTotal: 0, horasEstimadas: 48, estado: 'DIAGNOSTICO' }
   }
 
-  const equipo = await prisma.priceTradeIn.findFirst({ where: { modelo, active: true } })
+  const equipo = await prisma.priceTradeIn.findFirst({ where: { modelo, active: true, deletedAt: null } })
   const configs = await prisma.repairConfig.findMany({ where: { activo: true } })
   const config = new Map(configs.map(c => [c.key, c]))
   const icareCache = new Map<string, number | null>()
@@ -138,7 +138,7 @@ export async function calcularPresupuesto(
 
 /** Arma el tarifario completo: para cada modelo de Toma de Equipos, sus trabajos con precio. */
 export async function obtenerTarifario() {
-  const equipos = await prisma.priceTradeIn.findMany({ where: { active: true }, orderBy: { orden: 'asc' } })
+  const equipos = await prisma.priceTradeIn.findMany({ where: { active: true, deletedAt: null }, orderBy: { orden: 'asc' } })
   const configs = await prisma.repairConfig.findMany({ where: { activo: true } })
   const config = new Map(configs.map(c => [c.key, c]))
   const icareCache = new Map<string, number | null>()

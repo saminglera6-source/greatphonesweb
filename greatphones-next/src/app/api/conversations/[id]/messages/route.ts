@@ -86,7 +86,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
     })
 
-    if (!conversation) {
+    if (!conversation || conversation.deletedAt) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
     }
 

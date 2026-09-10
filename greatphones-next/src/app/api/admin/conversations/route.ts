@@ -1,6 +1,7 @@
 ﻿import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-guard'
+import { auditar } from '@/lib/audit'
 
 
 
@@ -12,7 +13,7 @@ export async function GET(request: Request) {
     const adminId = searchParams.get('adminId')
     const limit = parseInt(searchParams.get('limit') || '50')
 
-    const where: any = {}
+    const where: any = { deletedAt: null }
     if (status) where.status = status
     if (adminId) where.adminId = adminId
 
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await requireAdmin(request)
+    const admin = await requireAdmin(request)
     const body = await request.json()
     const { conversationId, adminId, action } = body
 
@@ -87,15 +88,28 @@ export async function POST(request: Request) {
     }
 
     if (action === 'delete') {
-      // Delete all messages first
-      await prisma.message.deleteMany({
-        where: { conversationId }
+      // Soft-delete (ERP regla 1): se marca, nunca se borran los mensajes.
+      const previo = await prisma.conversation.findUnique({ where: { id: conversationId } })
+      if (!previo) return NextResponse.json({ error: 'Conversación no encontrada' }, { status: 404 })
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: {
+          deletedAt: new Date(),
+          deletedBy: admin.email,
+          deleteReason: body.motivo || null,
+          status: 'CLOSED',
+          closedAt: previo.closedAt || new Date(),
+        },
       })
-
-      // Delete the conversation
-      await prisma.conversation.delete({
-        where: { id: conversationId }
-      })
+      await auditar({
+        entityType: 'Conversation',
+        entityId: conversationId,
+        action: 'ANULACION',
+        reason: `Baja de conversación de ${previo.userId}${body.motivo ? ' — ' + body.motivo : ''}`,
+        operator: admin.email,
+        createdById: admin.id,
+        snapshot: previo,
+      }).catch(() => {})
 
       return NextResponse.json({ success: true })
     }

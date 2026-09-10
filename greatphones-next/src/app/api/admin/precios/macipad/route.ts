@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin, handleRouteError } from '@/lib/auth-guard'
+import { auditar } from '@/lib/audit'
 import { z } from 'zod'
 
 const MacSchema = z.object({
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
   try {
     await requireAdmin(request)
     const rows = await prisma.priceList.findMany({
-      where: { category: 'MACIPAD' },
+      where: { category: 'MACIPAD', deletedAt: null },
       orderBy: [{ orden: 'asc' }, { modelo: 'asc' }],
     })
     return NextResponse.json(rows)
@@ -68,10 +69,20 @@ export async function PATCH(request: Request) {
     if (!body.id) return NextResponse.json({ error: 'Falta el id' }, { status: 400 })
     const parsed = MacSchema.partial().safeParse(body)
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || 'Datos inválidos' }, { status: 400 })
+    const previo = await prisma.priceList.findUnique({ where: { id: body.id } })
     const row = await prisma.priceList.update({
       where: { id: body.id },
       data: { ...parsed.data, updatedBy: admin.id },
     })
+    await auditar({
+      entityType: 'PriceList',
+      entityId: body.id,
+      action: 'UPDATE',
+      reason: `Edición de precio Mac/iPad ${row.modelo} ${row.almacenamiento || ''}`.trim(),
+      operator: admin.email,
+      createdById: admin.id,
+      snapshot: previo,
+    }).catch(() => {})
     return NextResponse.json(row)
   } catch (error) {
     return handleRouteError(error)
@@ -80,11 +91,28 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    await requireAdmin(request)
+    const admin = await requireAdmin(request)
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
+    const motivo = (searchParams.get('motivo') || '').trim()
     if (!id) return NextResponse.json({ error: 'Falta el id' }, { status: 400 })
-    await prisma.priceList.delete({ where: { id } })
+    if (motivo.length < 3) return NextResponse.json({ error: 'Indicá el motivo de la baja' }, { status: 400 })
+    const previo = await prisma.priceList.findUnique({ where: { id } })
+    if (!previo) return NextResponse.json({ error: 'Precio no encontrado' }, { status: 404 })
+    // Soft-delete (ERP regla 1).
+    await prisma.priceList.update({
+      where: { id },
+      data: { deletedAt: new Date(), deletedBy: admin.email, deleteReason: motivo, active: false },
+    })
+    await auditar({
+      entityType: 'PriceList',
+      entityId: id,
+      action: 'ANULACION',
+      reason: `Baja de precio Mac/iPad ${previo.modelo} ${previo.almacenamiento || ''} — ${motivo}`.trim(),
+      operator: admin.email,
+      createdById: admin.id,
+      snapshot: previo,
+    }).catch(() => {})
     return NextResponse.json({ ok: true })
   } catch (error) {
     return handleRouteError(error)

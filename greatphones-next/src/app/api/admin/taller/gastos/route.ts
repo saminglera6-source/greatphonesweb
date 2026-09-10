@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireAdmin, handleRouteError } from '@/lib/auth-guard'
 import { registerEntry } from '@/lib/accounting'
 import { obtenerDolar } from '@/lib/precios'
+import { nextCorrelativo } from '@/lib/correlativo'
 import { z } from 'zod'
 
 const GastoSchema = z.object({
@@ -37,10 +38,6 @@ export async function POST(request: Request) {
     const usdEnPesos = Math.round(usd * (cotizacion || 0))
     const montoTotal = efec + transf + usdEnPesos
 
-    // N° de gasto GST-xxx correlativo
-    const last = await prisma.accountingEntry.count({ where: { source: 'GASTO' } })
-    const nGas = `GST-${String(100 + last).slice(1)}`
-
     const obsUSD = usd > 0
       ? `${d.obs || ''}${d.obs ? ' | ' : ''}USD: ${usd} | USD_COTIZACION: ${cotizacion} | USD_CONVERTIDO: ${usdEnPesos}`
       : (d.obs || '')
@@ -51,21 +48,31 @@ export async function POST(request: Request) {
     if (transf > 0) medios.push({ means: 'TRANSFERENCIA', amount: transf, obs: d.obs || '' })
     if (usd > 0) medios.push({ means: 'USD', amount: usd, amountUsd: usd, obs: obsUSD })
 
-    for (const m of medios) {
-      await registerEntry({
-        source: 'GASTO',
-        operationId: nGas,
-        description: `Gasto ${d.cat}: ${d.desc}`,
-        category: d.cat,
-        type: 'EGRESO',
-        means: m.means,
-        amount: m.amount,
-        amountUsd: m.means === 'USD' ? (m.amountUsd ?? null) : null,
-        opDate: d.fecha ? new Date(d.fecha) : undefined,
-        operator: d.operador,
-        createdById: admin.id,
-      }).catch(e => console.error('[Taller Gasto] asiento:', e))
-    }
+    // Correlativo + todos los asientos en una sola transacción (T-8): un gasto
+    // nunca queda con la mitad de sus asientos.
+    const nGas = await prisma.$transaction(async tx => {
+      const code = await nextCorrelativo(tx, 'GST', tx.accountingEntry as any, {
+        distinct: true,
+        field: 'operationId',
+        extraWhere: { source: 'GASTO' },
+      })
+      for (const m of medios) {
+        await registerEntry({
+          source: 'GASTO',
+          operationId: code,
+          description: `Gasto ${d.cat}: ${d.desc}`,
+          category: d.cat,
+          type: 'EGRESO',
+          means: m.means,
+          amount: m.amount,
+          amountUsd: m.means === 'USD' ? (m.amountUsd ?? null) : null,
+          opDate: d.fecha ? new Date(d.fecha) : undefined,
+          operator: d.operador,
+          createdById: admin.id,
+        }, tx)
+      }
+      return code
+    })
 
     return NextResponse.json({
       operacion: nGas,
