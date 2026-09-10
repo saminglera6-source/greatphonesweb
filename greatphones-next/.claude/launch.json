@@ -5,7 +5,8 @@
       "name": "dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3000
+      "env": { "PORT": "3001" },
+      "port": 3001
     }
   ]
 }

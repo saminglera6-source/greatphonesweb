@@ -504,6 +504,7 @@ model Conversation {
   @@index([adminId, lastMsgAt])
   @@index([status])
   @@index([lastMsgAt])
+  @@index([deletedAt])
 }
 
 model Message {
@@ -1210,6 +1211,7 @@ model PriceList {
 
   @@index([category])
   @@index([modelo])
+  @@index([deletedAt])
 }
 
 model PriceTradeIn {
@@ -1234,6 +1236,7 @@ model PriceTradeIn {
   deleteReason String?
 
   @@index([modelo])
+  @@index([deletedAt])
 }
 
 model CuotasConfig {
