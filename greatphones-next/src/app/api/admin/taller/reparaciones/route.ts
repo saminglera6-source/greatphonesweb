@@ -110,9 +110,36 @@ export async function PATCH(request: Request) {
     await auditar({
       entityType: 'Repair',
       entityId: id,
-      action: 'CORRECCION',
+      action: 'UPDATE',
       reason: `Estado cambiado a ${status}${data.thirdParty ? ' (tercero)' : ''}${cost !== undefined ? ` · costo ${cost}` : ''}${thirdPartyCost !== undefined ? ` · costo tercero ${thirdPartyCost}` : ''}`,
     }).catch(() => {})
+
+    // Garantía de la reparación: 90 días desde la entrega (ERP §6.5 regla 61).
+    // Solo reparaciones reales (no diagnóstico), una sola vez.
+    if (status === 'DELIVERED' && existing.status !== 'DELIVERED' && !existing.isDiagnosis) {
+      try {
+        const yaTiene = await prisma.guarantee.findFirst({
+          where: { userId: existing.userId, product: { contains: existing.code } },
+        })
+        if (!yaTiene) {
+          const start = (data.deliveredAt as Date) || new Date()
+          await prisma.guarantee.create({
+            data: {
+              userId: existing.userId,
+              product: `Reparación ${existing.code} — ${existing.device}`,
+              type: 'reparacion',
+              price: existing.pricePaid || 0,
+              startsAt: start,
+              expiresAt: new Date(start.getTime() + 90 * 24 * 60 * 60 * 1000),
+              status: 'ACTIVE',
+            },
+          })
+        }
+      } catch (e) {
+        console.error('[Taller Reparaciones] garantía:', e)
+      }
+    }
+
     return NextResponse.json(updated)
   } catch (error: any) {
     console.error('[Taller Reparaciones PATCH]', error)

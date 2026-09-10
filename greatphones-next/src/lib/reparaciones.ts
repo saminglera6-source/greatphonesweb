@@ -24,6 +24,7 @@ export interface TrabajoResult {
   motivo?: string
   descuentoToma?: number
   multiplicador?: number
+  fuente?: 'icare' | 'propio'
 }
 
 export interface PresupuestoResult {
@@ -33,10 +34,48 @@ export interface PresupuestoResult {
   estado: 'COTIZADO' | 'DIAGNOSTICO'
 }
 
+/** Normaliza un modelo para el match del tarifario Icare (minúsculas, sin
+ *  almacenamiento). Regla 114 del ERP. */
+export function normalizarModelo(modelo: string): string {
+  return (modelo || '')
+    .toLowerCase()
+    .replace(/\b\d+\s*(gb|tb)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Precio Público = Precio Guía × 1.20 redondeado al peso (regla 111). */
+export function precioPublicoIcare(precioGuia: number): number {
+  return Math.round((Number(precioGuia) || 0) * 1.2)
+}
+
 /**
- * Calcula el presupuesto de una reparación para un modelo y un conjunto de
- * trabajos marcados (mismo método histórico del ERP: descuentoToma ×
- * multiplicador, con fallback a "sin configurar").
+ * Precio de un trabajo según el tarifario Icare, si lo cubre.
+ * Regla 110: varias variantes del mismo modelo+categoría → la más cara.
+ * Regla 114: match exacto → normalizado (sin fuzzy).
+ */
+async function precioIcare(
+  modelo: string,
+  categoria: string,
+  cache: Map<string, number | null>,
+): Promise<number | null> {
+  const norm = normalizarModelo(modelo)
+  const key = `${norm}|${categoria}`
+  if (cache.has(key)) return cache.get(key)!
+  const filas = await prisma.icareTariff.findMany({
+    where: { categoria, OR: [{ modelo }, { modeloNorm: norm }] },
+    select: { precioPublico: true },
+    orderBy: { precioPublico: 'desc' },
+  })
+  const val = filas.length ? filas[0].precioPublico : null
+  cache.set(key, val)
+  return val
+}
+
+/**
+ * Calcula el presupuesto de una reparación.
+ * Cascada por trabajo (ERP §6.5 regla 56): tarifario Icare → método propio
+ * (descuento de Toma × multiplicador) → "sin configurar".
  * Si `esDiagnostico` es true, devuelve estado DIAGNOSTICO sin calcular.
  */
 export async function calcularPresupuesto(
@@ -49,10 +88,9 @@ export async function calcularPresupuesto(
   }
 
   const equipo = await prisma.priceTradeIn.findFirst({ where: { modelo, active: true } })
-  if (!equipo) throw new Error(`Modelo "${modelo}" no encontrado en Toma de Equipos`)
-
   const configs = await prisma.repairConfig.findMany({ where: { activo: true } })
   const config = new Map(configs.map(c => [c.key, c]))
+  const icareCache = new Map<string, number | null>()
 
   const trabajos: TrabajoResult[] = []
   let precioTotal = 0
@@ -61,19 +99,38 @@ export async function calcularPresupuesto(
   for (const it of REPARACIONES_ITEMS) {
     if (!trabajosMarcados[it.key]) continue
     const cfg = config.get(it.key)
+    const horas = cfg?.horas ?? 48
+
+    // 1) Icare
+    const pIcare = await precioIcare(modelo, it.key, icareCache)
+    if (pIcare != null && pIcare > 0) {
+      trabajos.push({ nombre: it.label, precio: pIcare, fuente: 'icare' })
+      precioTotal += pIcare
+      if (horas > horasEstimadas) horasEstimadas = horas
+      continue
+    }
+
+    // 2) Método propio: descuento de Toma × multiplicador (regla 57: activo)
     if (!cfg) {
       trabajos.push({ nombre: it.label, precio: null, sinConfigurar: true, motivo: 'Categoría sin configurar' })
       continue
     }
-    const descuentoToma = Number((equipo as any)[it.key]) || 0
+    const descuentoToma = equipo ? Number((equipo as any)[it.key]) || 0 : 0
     if (descuentoToma > 0) {
       const precio = Math.round(descuentoToma * cfg.multiplicador)
-      trabajos.push({ nombre: it.label, precio, descuentoToma, multiplicador: cfg.multiplicador })
+      trabajos.push({ nombre: it.label, precio, descuentoToma, multiplicador: cfg.multiplicador, fuente: 'propio' })
       precioTotal += precio
       if (cfg.horas > horasEstimadas) horasEstimadas = cfg.horas
       continue
     }
-    trabajos.push({ nombre: it.label, precio: null, sinConfigurar: true, motivo: 'Sin precio de Toma de Equipos para este modelo' })
+
+    // 3) Sin configurar
+    trabajos.push({
+      nombre: it.label,
+      precio: null,
+      sinConfigurar: true,
+      motivo: equipo ? 'Sin precio de Icare ni de Toma para este modelo' : `Modelo "${modelo}" sin Toma ni tarifario Icare`,
+    })
   }
 
   return { trabajos, precioTotal, horasEstimadas, estado: 'COTIZADO' }
@@ -84,18 +141,26 @@ export async function obtenerTarifario() {
   const equipos = await prisma.priceTradeIn.findMany({ where: { active: true }, orderBy: { orden: 'asc' } })
   const configs = await prisma.repairConfig.findMany({ where: { activo: true } })
   const config = new Map(configs.map(c => [c.key, c]))
+  const icareCache = new Map<string, number | null>()
 
-  return equipos.map(equipo => {
-    const trabajos: TrabajoResult[] = []
-    for (const it of REPARACIONES_ITEMS) {
-      const cfg = config.get(it.key)
-      const descuentoToma = Number((equipo as any)[it.key]) || 0
-      if (cfg && descuentoToma > 0) {
-        trabajos.push({ nombre: it.label, precio: Math.round(descuentoToma * cfg.multiplicador) })
-      } else {
-        trabajos.push({ nombre: it.label, precio: null, sinConfigurar: true, motivo: cfg ? 'Sin descuento en Toma' : 'Categoría sin configurar' })
+  return Promise.all(
+    equipos.map(async equipo => {
+      const trabajos: TrabajoResult[] = []
+      for (const it of REPARACIONES_ITEMS) {
+        const pIcare = await precioIcare(equipo.modelo, it.key, icareCache)
+        if (pIcare != null && pIcare > 0) {
+          trabajos.push({ nombre: it.label, precio: pIcare, fuente: 'icare' })
+          continue
+        }
+        const cfg = config.get(it.key)
+        const descuentoToma = Number((equipo as any)[it.key]) || 0
+        if (cfg && descuentoToma > 0) {
+          trabajos.push({ nombre: it.label, precio: Math.round(descuentoToma * cfg.multiplicador), fuente: 'propio' })
+        } else {
+          trabajos.push({ nombre: it.label, precio: null, sinConfigurar: true, motivo: cfg ? 'Sin descuento en Toma' : 'Categoría sin configurar' })
+        }
       }
-    }
-    return { modelo: equipo.modelo, trabajos }
-  })
+      return { modelo: equipo.modelo, trabajos }
+    }),
+  )
 }

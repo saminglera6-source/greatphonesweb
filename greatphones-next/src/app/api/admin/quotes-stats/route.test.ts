@@ -36,7 +36,7 @@ describe('GET /api/admin/quotes-stats', () => {
   it('returns full stats structure when admin', async () => {
     const { requireAdmin } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
 
     // Mock counts: total, pending, approved, rejected, reviewing, completed
     vi.mocked(prisma.quote.count)
@@ -95,7 +95,7 @@ describe('GET /api/admin/quotes-stats', () => {
   it('handles zero quotes gracefully', async () => {
     const { requireAdmin } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
 
     vi.mocked(prisma.quote.count).mockResolvedValue(0)
     vi.mocked(prisma.quote.aggregate).mockResolvedValue({ _sum: { finalPrice: 0 }, _count: 0, _avg: { finalPrice: 0 } } as any)

@@ -32,7 +32,7 @@ describe('GET /api/admin/purchased', () => {
   it('returns paginated list with metrics when admin', async () => {
     const { requireAdmin } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
 
     const mockItems = [
       {
@@ -80,7 +80,7 @@ describe('GET /api/admin/purchased', () => {
   it('respects pagination params', async () => {
     const { requireAdmin } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
     vi.mocked(prisma.purchasedDevice.findMany).mockResolvedValue([])
     vi.mocked(prisma.purchasedDevice.count).mockResolvedValue(100)
     vi.mocked(prisma.purchasedDevice.aggregate).mockResolvedValue({
@@ -107,7 +107,7 @@ describe('GET /api/admin/purchased', () => {
   it('filters by search term', async () => {
     const { requireAdmin } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
     vi.mocked(prisma.purchasedDevice.findMany).mockResolvedValue([])
     vi.mocked(prisma.purchasedDevice.count).mockResolvedValue(0)
     vi.mocked(prisma.purchasedDevice.aggregate).mockResolvedValue({
@@ -133,7 +133,7 @@ describe('GET /api/admin/purchased', () => {
   it('caps limit at 100 to prevent DoS', async () => {
     const { requireAdmin } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
     vi.mocked(prisma.purchasedDevice.findMany).mockResolvedValue([])
     vi.mocked(prisma.purchasedDevice.count).mockResolvedValue(0)
     vi.mocked(prisma.purchasedDevice.aggregate).mockResolvedValue({

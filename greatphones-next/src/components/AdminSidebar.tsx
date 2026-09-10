@@ -30,6 +30,7 @@ const operaciones: SubGroup = {
   title: '',
   items: [
     { href: '/admin/ops/compras', label: 'Registrar Compra', icon: 'shopping_cart' },
+    { href: '/admin/ops/compras-accesorios', label: 'Comprar Accesorios', icon: 'add_shopping_cart' },
     { href: '/admin/ops/ventas', label: 'Registrar Venta', icon: 'payments' },
     { href: '/admin/ops/preventas', label: 'Registrar Preventa', icon: 'event' },
     { href: '/admin/ops/entregar-preventa', label: 'Entregar Preventa', icon: 'package_2' },

@@ -646,7 +646,8 @@ model Accessory {
   description      String?
   category         String
   price            Int
-  cost             Int         @default(0)
+  cost             Int         @default(0)   // costo promedio ponderado histórico
+  lastCost         Int         @default(0)   // costo de la compra más reciente
   stock            Int         @default(0)
   reserved         Int         @default(0)
   sold             Int         @default(0)
@@ -670,6 +671,7 @@ model Accessory {
   deleteReason     String?
   cartItems        CartItem[]
   orderItems       OrderItem[]
+  purchases        AccessoryPurchase[]
 
   @@index([category])
   @@index([brand])
@@ -1240,4 +1242,42 @@ model RepairConfig {
   createdAt    DateTime @default(now())
 
   @@unique([key])
+}
+
+// Tarifario de un proveedor externo de repuestos (Icare). Se importa por CSV
+// y reemplaza todo el contenido. El presupuesto de reparación lo consulta
+// primero, antes de la fórmula propia (ERP §6.13).
+model IcareTariff {
+  id           String   @id @default(cuid())
+  modelo       String
+  categoria    String   // clave del trabajo: pantalla, bateria, ...
+  modeloNorm   String   // modelo normalizado (minúsculas, sin almacenamiento) para el match en cascada
+  precioGuia   Int      @default(0)
+  precioPublico Int     @default(0) // precioGuia * 1.20 redondeado
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@index([modeloNorm, categoria])
+  @@index([modelo])
+}
+
+// Compra de accesorios (multilínea). Cada línea es una fila con el mismo
+// número de compra. Alimenta el stock y el costo promedio ponderado del SKU.
+model AccessoryPurchase {
+  id          String   @id @default(cuid())
+  code        String                 // CAC-nnnn (compartido por las líneas de una compra)
+  proveedor   String?
+  accessoryId String
+  categoria   String?
+  producto    String
+  cantidad    Int
+  costoUnit   Int
+  precioVenta Int?
+  operator    String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  accessory   Accessory @relation(fields: [accessoryId], references: [id])
+
+  @@index([code])
+  @@index([accessoryId])
 }

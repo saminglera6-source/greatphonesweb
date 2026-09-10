@@ -46,7 +46,45 @@ const LABELS: Record<string, string> = {
 }
 
 export default function TarifarioClient() {
-  const [tab, setTab] = useState<'ver' | 'config'>('ver')
+  const [tab, setTab] = useState<'ver' | 'config' | 'icare'>('ver')
+  const [icareCsv, setIcareCsv] = useState('')
+  const [icareCount, setIcareCount] = useState<number | null>(null)
+  const [icareMsg, setIcareMsg] = useState<string | null>(null)
+  const [icareBusy, setIcareBusy] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/admin/taller/icare', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => setIcareCount(d.count ?? 0))
+      .catch(() => {})
+  }, [])
+
+  const importarIcare = async (confirmar = false) => {
+    setIcareMsg(null)
+    setIcareBusy(true)
+    try {
+      const r = await fetch('/api/admin/taller/icare', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv: icareCsv, confirmar }),
+      })
+      const d = await r.json()
+      if (r.status === 409 && d.needsConfirm) {
+        if (confirm(d.error)) return importarIcare(true)
+        return
+      }
+      if (!r.ok) {
+        setIcareMsg(d.error || 'Error al importar')
+        return
+      }
+      setIcareMsg(`Tarifario Icare importado: ${d.importadas} filas${d.descartadas ? ` · ${d.descartadas} descartadas` : ''}`)
+      setIcareCount(d.importadas)
+      setIcareCsv('')
+    } finally {
+      setIcareBusy(false)
+    }
+  }
   const [rows, setRows] = useState<TarifarioRow[]>([])
   const [configs, setConfigs] = useState<ConfigRow[]>([])
   const [buscar, setBuscar] = useState('')
@@ -186,6 +224,7 @@ export default function TarifarioClient() {
             [
               ['ver', 'Ver tarifario', 'visibility'],
               ['config', 'Configuración', 'settings'],
+              ['icare', 'Tarifario Icare', 'cloud_upload'],
             ] as const
           ).map(([k, label, icon]) => (
             <button
@@ -236,7 +275,36 @@ export default function TarifarioClient() {
           </div>
         )}
 
-        {tab === 'ver' ? (
+        {tab === 'icare' ? (
+          <div style={{ maxWidth: 640 }}>
+            <p style={{ fontSize: 13, color: '#3D4356', margin: '0 0 6px' }}>
+              Pegá el tarifario del proveedor (una fila por línea):{' '}
+              <code style={{ background: '#F1F3F7', padding: '1px 5px', borderRadius: 4 }}>modelo, categoria, precioGuia</code>
+            </p>
+            <p style={{ fontSize: 12, color: '#6B7280', margin: '0 0 10px' }}>
+              Categorías válidas: bateria, pantalla, camara, microfono, parlante, tapa, marco, pin, flex, botones, chasis.
+              El Precio Público se calcula automáticamente (Precio Guía × 1,20). Importar reemplaza TODO el tarifario.
+              {icareCount != null && <> · Hoy hay <strong>{icareCount}</strong> filas cargadas.</>}
+            </p>
+            <textarea
+              value={icareCsv}
+              onChange={e => setIcareCsv(e.target.value)}
+              placeholder={'iPhone 13, pantalla, 45000\niPhone 13, bateria, 18000\niPhone 12, pantalla, 38000'}
+              style={{ width: '100%', minHeight: 200, padding: 12, border: '1.5px solid #E6E7F0', borderRadius: 9, fontSize: 12.5, fontFamily: 'monospace', background: '#FBFBFD' }}
+            />
+            {icareMsg && <p style={{ fontSize: 13, color: '#166534', margin: '8px 0 0' }}>{icareMsg}</p>}
+            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+              <button onClick={() => importarIcare(false)} disabled={icareBusy || !icareCsv.trim()} style={{ background: 'linear-gradient(135deg,#4F46E5,#6366F1)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                {icareBusy ? 'Importando…' : 'Importar tarifario'}
+              </button>
+              {icareCount ? (
+                <button onClick={async () => { if (confirm('¿Vaciar el tarifario Icare?')) { await fetch('/api/admin/taller/icare', { method: 'DELETE', credentials: 'include' }); setIcareCount(0); setIcareMsg('Tarifario vaciado') } }} style={{ background: '#fff', color: '#DC2626', border: '1.5px solid #FECACA', padding: '10px 16px', borderRadius: 9, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                  Vaciar
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : tab === 'ver' ? (
           <>
             <div
               className="tf-search"

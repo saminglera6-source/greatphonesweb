@@ -58,7 +58,7 @@ describe('GET /api/quotes', () => {
   it('returns 200 with quotes for authenticated user', async () => {
     const { requireSession } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireSession).mockResolvedValue({ id: 'u1', email: 'test@test.com', role: 'CLIENT' })
+    vi.mocked(requireSession).mockResolvedValue({ id: 'u1', email: 'test@test.com', role: 'CLIENT', active: true })
     vi.mocked(prisma.quote.count).mockResolvedValue(1)
     vi.mocked(prisma.quote.findMany).mockResolvedValue([
       { id: 'q1', code: 'QT-123', device: 'iPhone 15 Pro', status: 'PENDING', finalPrice: 800000 },
@@ -81,7 +81,7 @@ describe('POST /api/quotes', () => {
 
   it('returns 400 when required fields are missing', async () => {
     const { requireSession } = await import('@/lib/auth-guard')
-    vi.mocked(requireSession).mockResolvedValue({ id: 'u1', email: 'test@test.com', role: 'CLIENT' })
+    vi.mocked(requireSession).mockResolvedValue({ id: 'u1', email: 'test@test.com', role: 'CLIENT', active: true })
 
     const { POST } = await import('./route')
     const req = new Request('http://localhost/api/quotes', {
@@ -95,7 +95,7 @@ describe('POST /api/quotes', () => {
   it('returns 201 on successful quote creation', async () => {
     const { requireSession } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireSession).mockResolvedValue({ id: 'u1', email: 'test@test.com', role: 'CLIENT' })
+    vi.mocked(requireSession).mockResolvedValue({ id: 'u1', email: 'test@test.com', role: 'CLIENT', active: true })
     vi.mocked(prisma.quote.create).mockResolvedValue({
       id: 'q1', code: 'QT-123', device: 'iPhone 15 Pro', status: 'PENDING', finalPrice: 800000,
       photos: [], dniPhotos: [], extras: [], batteryHealth: null,
@@ -149,7 +149,7 @@ describe('PATCH /api/quotes', () => {
 
   it('returns 400 when id or status missing', async () => {
     const { requireAdmin } = await import('@/lib/auth-guard')
-    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
 
     const { PATCH } = await import('./route')
     const req = new Request('http://localhost/api/quotes', {
@@ -183,7 +183,7 @@ describe('PATCH /api/quotes', () => {
       const { prisma } = await import('@/lib/prisma')
       const arca = await import('@/lib/arca')
 
-      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
       vi.mocked(arca.arcaIsConfigured).mockReturnValue(false)
       vi.mocked(prisma.invoice.findUnique).mockResolvedValue(null)
       vi.mocked(prisma.quote.findUnique).mockResolvedValue({ ...mockQuote, purchasedDevice: null } as any)
@@ -219,7 +219,7 @@ describe('PATCH /api/quotes', () => {
       const { prisma } = await import('@/lib/prisma')
       const arca = await import('@/lib/arca')
 
-      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
       vi.mocked(arca.arcaIsConfigured).mockReturnValue(true)
       vi.mocked(arca.buildFacturarOptsFromQuote).mockReturnValue({
         opts: { ptoVta: 1, cbteTipo: 11, items: [], docTipo: 96, docNro: 40123456, condicionIva: 5 },
@@ -298,7 +298,7 @@ describe('PATCH /api/quotes', () => {
       const { prisma } = await import('@/lib/prisma')
       const arca = await import('@/lib/arca')
 
-      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
       vi.mocked(arca.arcaIsConfigured).mockReturnValue(true)
       vi.mocked(arca.buildFacturarOptsFromQuote).mockReturnValue({
         opts: {} as any, neto: 0, iva: 0, total: 0,
@@ -332,7 +332,7 @@ describe('PATCH /api/quotes', () => {
       const { requireAdmin } = await import('@/lib/auth-guard')
       const { prisma } = await import('@/lib/prisma')
 
-      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
       vi.mocked(prisma.invoice.findUnique).mockResolvedValue({
         id: 'inv1',
         type: 'C',
@@ -356,7 +356,7 @@ describe('PATCH /api/quotes', () => {
       const { requireAdmin } = await import('@/lib/auth-guard')
       const { prisma } = await import('@/lib/prisma')
 
-      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+      vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
       vi.mocked(prisma.quote.findUnique).mockResolvedValue(null)
 
       const { PATCH } = await import('./route')
@@ -372,7 +372,7 @@ describe('PATCH /api/quotes', () => {
   it('rejects quote without affecting invoice (REJECTED status)', async () => {
     const { requireAdmin } = await import('@/lib/auth-guard')
     const { prisma } = await import('@/lib/prisma')
-    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN' })
+    vi.mocked(requireAdmin).mockResolvedValue({ id: 'a1', email: 'admin@test.com', role: 'ADMIN', active: true })
     vi.mocked(prisma.quote.update).mockResolvedValue({
       id: 'q1',
       status: 'REJECTED',
