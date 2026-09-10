@@ -1,6 +1,6 @@
 // =========== NAVIGATION ===========
 var currentUser=null;
-var API_URL=window.API_URL||(window.location.hostname==='localhost'?'http://localhost:3000':window.location.origin);
+var API_URL=window.API_URL||(window.location.hostname==='localhost'?window.location.protocol+'//'+window.location.host:window.location.origin);
 function nav(id){
   ['homeRail','offerStrip','shopGrid','ofertasGrid','accGrid'].forEach(function(gid){var g=document.getElementById(gid);if(g)delete g.dataset.svRevealed;});
   var _cf=document.querySelector('.cat-flex');if(_cf)_cf.classList.remove('cat-reveal');

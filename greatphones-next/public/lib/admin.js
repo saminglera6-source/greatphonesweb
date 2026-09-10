@@ -3,7 +3,7 @@
 //   adminTab, renderAdminContent, editProduct, showToast
 // The render.js versions are the canonical ones; changes should be made there.
 // Functions in this file that are NOT overwritten are still active.
-var API_URL=window.API_URL||(window.location.hostname==='localhost'?'http://localhost:3000':window.location.origin);
+var API_URL=window.API_URL||(window.location.hostname==='localhost'?window.location.protocol+'//'+window.location.host:window.location.origin);
 
 // Polling helper: espera hasta que `fnName` exista en window y la ejecuta.
 // Necesario porque el shell legacy tiene scripts con `defer` que pueden no haber
