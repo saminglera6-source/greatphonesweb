@@ -1094,6 +1094,27 @@ model Investor {
   active      Boolean            @default(true)
   createdAt   DateTime           @default(now())
   movements   InvestorMovement[]
+  yields      InvestorYield[]
+}
+
+// Rendimiento mensual devengado (ERP §3.17: "tabla de rendimientos mensuales").
+// Se genera con la acción `yield`; se marca PAGADO (FIFO) cuando se registra un
+// movimiento PAGO_RENDIMIENTO.
+model InvestorYield {
+  id          String   @id @default(cuid())
+  investorId  String
+  period      String   // YYYY-MM
+  capitalBase Int      // capital sobre el que se calculó
+  amount      Int      // rendimiento calculado
+  status      String   @default("PENDIENTE") // PENDIENTE | PAGADO
+  paidAt      DateTime?
+  operator    String?
+  createdAt   DateTime @default(now())
+  investor    Investor @relation(fields: [investorId], references: [id], onDelete: Cascade)
+
+  @@unique([investorId, period])
+  @@index([investorId])
+  @@index([status])
 }
 
 enum InvestorMovementType {

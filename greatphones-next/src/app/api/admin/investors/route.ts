@@ -27,6 +27,34 @@ const YieldSchema = z.object({
 export async function GET(request: Request) {
   try {
     await requireAdmin(request)
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    // Panel dedicado de un inversor (ERP §3.17): capital, movimientos y la
+    // tabla de rendimientos mensuales con su estado.
+    if (id) {
+      const inv = await prisma.investor.findUnique({
+        where: { id },
+        include: {
+          movements: { orderBy: { createdAt: 'desc' } },
+          yields: { orderBy: { period: 'desc' } },
+        },
+      })
+      if (!inv) return NextResponse.json({ error: 'Inversor no encontrado' }, { status: 404 })
+      const aportado = inv.movements.filter(m => m.type === 'INGRESO_CAPITAL').reduce((s, m) => s + m.amount, 0)
+      const retirado = inv.movements.filter(m => m.type === 'RETIRO_CAPITAL').reduce((s, m) => s + m.amount, 0)
+      return NextResponse.json({
+        ...inv,
+        resumen: {
+          aportado,
+          retirado,
+          rendimientoDevengado: inv.yields.reduce((s, y) => s + y.amount, 0),
+          rendimientoPagado: inv.paidTotal,
+          rendimientoPendiente: inv.pending,
+        },
+      })
+    }
+
     const investors = await prisma.investor.findMany({
       where: { active: true },
       orderBy: { name: 'asc' },
@@ -112,6 +140,25 @@ export async function POST(request: Request) {
             operator: d.operator || null,
           },
         })
+        // Pago de rendimiento: se saldan los períodos PENDIENTE más viejos
+        // primero (FIFO) hasta cubrir el monto pagado (ERP §3.17).
+        if (d.type === 'PAGO_RENDIMIENTO') {
+          let restante = d.amount
+          const pendientes = await tx.investorYield.findMany({
+            where: { investorId: inv.id, status: 'PENDIENTE' },
+            orderBy: { period: 'asc' },
+          })
+          for (const y of pendientes) {
+            if (restante <= 0) break
+            if (y.amount <= restante) {
+              await tx.investorYield.update({
+                where: { id: y.id },
+                data: { status: 'PAGADO', paidAt: new Date(), operator: d.operator || null },
+              })
+              restante -= y.amount
+            }
+          }
+        }
         if (tipoAsiento && d.amount !== 0) {
           await registerEntry({
             source: 'INVERSOR',
@@ -136,21 +183,21 @@ export async function POST(request: Request) {
       const inv = await prisma.investor.findUnique({ where: { id: investorId } })
       if (!inv) return NextResponse.json({ error: 'Inversor no encontrado' }, { status: 404 })
 
-      const dup = await prisma.investorMovement.findFirst({
-        where: { investorId, detail: `Rendimiento ${month}` },
+      const dup = await prisma.investorYield.findUnique({
+        where: { investorId_period: { investorId, period: month } },
       })
       if (dup) return NextResponse.json({ error: 'Ya se generó el rendimiento de este mes' }, { status: 400 })
 
       const amount = Math.round((inv.capital * inv.yieldRate) / 100)
       await prisma.$transaction([
         prisma.investor.update({ where: { id: inv.id }, data: { pending: inv.pending + amount } }),
-        prisma.investorMovement.create({
+        prisma.investorYield.create({
           data: {
             investorId,
-            type: 'PAGO_RENDIMIENTO',
-            amount: 0,
-            detail: `Rendimiento ${month}`,
-            capitalAfter: inv.capital,
+            period: month,
+            capitalBase: inv.capital,
+            amount,
+            status: 'PENDIENTE',
             operator: operator || null,
           },
         }),

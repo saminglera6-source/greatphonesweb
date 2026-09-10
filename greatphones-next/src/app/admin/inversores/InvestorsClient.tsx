@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import AdminTopbar from '@/components/AdminTopbar'
 
 interface Move {
@@ -362,33 +363,56 @@ export default function InvestorsClient() {
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => setActiveId(activeId === inv.id ? null : inv.id)}
-                  className="pe-btn"
-                  aria-expanded={activeId === inv.id}
-                  style={{
-                    padding: '8px 14px',
-                    border: '1.5px solid #E6E7F0',
-                    borderRadius: 9,
-                    background: activeId === inv.id ? '#181B2E' : '#fff',
-                    color: activeId === inv.id ? '#fff' : '#374151',
-                    cursor: 'pointer',
-                    fontSize: 12.5,
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <span
-                    className="material-symbols-outlined"
-                    style={{ fontSize: 14 }}
-                    aria-hidden="true"
+                <div style={{ display: 'inline-flex', gap: 8 }}>
+                  <Link
+                    href={`/admin/inversores/${inv.id}`}
+                    style={{
+                      padding: '8px 14px',
+                      border: '1.5px solid #E6E7F0',
+                      borderRadius: 9,
+                      background: '#fff',
+                      color: '#374151',
+                      textDecoration: 'none',
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
                   >
-                    {activeId === inv.id ? 'close' : 'tune'}
-                  </span>
-                  {activeId === inv.id ? 'Cerrar' : 'Gestionar'}
-                </button>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden="true">
+                      analytics
+                    </span>
+                    Ver panel
+                  </Link>
+                  <button
+                    onClick={() => setActiveId(activeId === inv.id ? null : inv.id)}
+                    className="pe-btn"
+                    aria-expanded={activeId === inv.id}
+                    style={{
+                      padding: '8px 14px',
+                      border: '1.5px solid #E6E7F0',
+                      borderRadius: 9,
+                      background: activeId === inv.id ? '#181B2E' : '#fff',
+                      color: activeId === inv.id ? '#fff' : '#374151',
+                      cursor: 'pointer',
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <span
+                      className="material-symbols-outlined"
+                      style={{ fontSize: 14 }}
+                      aria-hidden="true"
+                    >
+                      {activeId === inv.id ? 'close' : 'tune'}
+                    </span>
+                    {activeId === inv.id ? 'Cerrar' : 'Gestionar'}
+                  </button>
+                </div>
               </div>
 
               <div
