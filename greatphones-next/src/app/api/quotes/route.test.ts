@@ -18,12 +18,30 @@ vi.mock('@/lib/prisma', () => ({
     purchasedDevice: {
       create: vi.fn(),
     },
+    // F2: aprobar una cotización da de alta el equipo comprado en el inventario.
+    inventoryItem: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn(),
+    },
+    product: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'prod-mock' }),
+      update: vi.fn().mockResolvedValue({ id: 'prod-mock' }),
+    },
   },
 }))
 
 vi.mock('@/lib/auth-guard', () => ({
   requireSession: vi.fn(),
   requireAdmin: vi.fn(),
+}))
+
+// F2: el alta de inventario al aprobar emite un EGRESO y limpia el cache.
+vi.mock('@/lib/accounting', () => ({
+  registerEntry: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/lib/cache', () => ({
+  productCache: { clear: vi.fn() },
 }))
 
 vi.mock('@/lib/email', () => ({
