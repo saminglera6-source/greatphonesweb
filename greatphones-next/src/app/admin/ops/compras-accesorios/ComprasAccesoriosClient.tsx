@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import AdminTopbar from '@/components/AdminTopbar'
+import { MoneyInput, UsdInput, IntInput } from '@/components/campos'
+import { parseMiles, parseUsd, parseIntSafe } from '@/lib/formato'
 
 const OPERADORES = ['Martin', 'Maca', 'Sam', 'Eva', 'Buda']
 
@@ -51,8 +53,8 @@ export default function ComprasAccesoriosClient() {
   const setLinea = (i: number, patch: Partial<Linea>) =>
     setLineas(ls => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
 
-  const costoTotal = lineas.reduce((s, l) => s + (parseInt(l.cantidad) || 0) * (parseInt(l.costoUnit) || 0), 0)
-  const pagoTotal = (parseInt(efec) || 0) + (parseInt(transf) || 0)
+  const costoTotal = lineas.reduce((s, l) => s + parseIntSafe(l.cantidad) * parseMiles(l.costoUnit), 0)
+  const pagoTotal = parseMiles(efec) + parseMiles(transf)
   const dif = pagoTotal - costoTotal // sin contar USD (se convierte en el server)
 
   const enviar = async () => {
@@ -60,9 +62,9 @@ export default function ComprasAccesoriosClient() {
     const payload = {
       proveedor: proveedor.trim() || undefined,
       operador: operador || undefined,
-      efectivo: parseInt(efec) || 0,
-      transferencia: parseInt(transf) || 0,
-      usd: parseFloat(usd) || 0,
+      efectivo: parseMiles(efec),
+      transferencia: parseMiles(transf),
+      usd: parseUsd(usd),
       lineas: lineas
         .filter(l => l.producto.trim() && l.categoria.trim())
         .map(l => ({
@@ -70,9 +72,9 @@ export default function ComprasAccesoriosClient() {
           producto: l.producto.trim(),
           marca: l.marca.trim() || null,
           color: l.color.trim() || null,
-          cantidad: parseInt(l.cantidad) || 0,
-          costoUnit: parseInt(l.costoUnit) || 0,
-          precioVenta: parseInt(l.precioVenta) || null,
+          cantidad: parseIntSafe(l.cantidad),
+          costoUnit: parseMiles(l.costoUnit),
+          precioVenta: parseMiles(l.precioVenta) || null,
         })),
     }
     if (!operador) return setMsg({ t: 'err', s: 'Seleccioná el operador' })
@@ -151,10 +153,10 @@ export default function ComprasAccesoriosClient() {
                     <td style={{ padding: 4 }}><input style={input} value={l.producto} onChange={e => setLinea(i, { producto: e.target.value })} /></td>
                     <td style={{ padding: 4 }}><input style={input} value={l.marca} onChange={e => setLinea(i, { marca: e.target.value })} /></td>
                     <td style={{ padding: 4 }}><input style={input} value={l.color} onChange={e => setLinea(i, { color: e.target.value })} /></td>
-                    <td style={{ padding: 4 }}><input type="number" min={1} style={input} value={l.cantidad} onChange={e => setLinea(i, { cantidad: e.target.value })} /></td>
-                    <td style={{ padding: 4 }}><input type="number" min={0} style={input} value={l.costoUnit} onChange={e => setLinea(i, { costoUnit: e.target.value })} /></td>
-                    <td style={{ padding: 4 }}><input type="number" min={0} style={input} value={l.precioVenta} onChange={e => setLinea(i, { precioVenta: e.target.value })} placeholder="auto" /></td>
-                    <td style={{ padding: 6, fontWeight: 600 }}>{fmt((parseInt(l.cantidad) || 0) * (parseInt(l.costoUnit) || 0))}</td>
+                    <td style={{ padding: 4 }}><IntInput style={input} value={l.cantidad} onChange={v => setLinea(i, { cantidad: v })} aria-label="Cantidad" /></td>
+                    <td style={{ padding: 4 }}><MoneyInput style={input} value={l.costoUnit} onChange={v => setLinea(i, { costoUnit: v })} aria-label="Costo unitario" /></td>
+                    <td style={{ padding: 4 }}><MoneyInput style={input} value={l.precioVenta} onChange={v => setLinea(i, { precioVenta: v })} placeholder="auto" aria-label="Precio de venta" /></td>
+                    <td style={{ padding: 6, fontWeight: 600 }}>{fmt(parseIntSafe(l.cantidad) * parseMiles(l.costoUnit))}</td>
                     <td style={{ padding: 4 }}>
                       {lineas.length > 1 && (
                         <button onClick={() => setLineas(ls => ls.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 16 }}>×</button>
@@ -170,17 +172,17 @@ export default function ComprasAccesoriosClient() {
           </button>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginTop: 18 }}>
-            <div><label style={{ fontSize: 12, fontWeight: 600, color: '#3D4356' }}>Pagado efectivo</label><input type="number" style={input} value={efec} onChange={e => setEfec(e.target.value)} /></div>
-            <div><label style={{ fontSize: 12, fontWeight: 600, color: '#3D4356' }}>Pagado transferencia</label><input type="number" style={input} value={transf} onChange={e => setTransf(e.target.value)} /></div>
-            <div><label style={{ fontSize: 12, fontWeight: 600, color: '#3D4356' }}>Pagado USD</label><input type="number" style={input} value={usd} onChange={e => setUsd(e.target.value)} /></div>
+            <div><label style={{ fontSize: 12, fontWeight: 600, color: '#3D4356' }}>Pagado efectivo</label><MoneyInput style={input} value={efec} onChange={setEfec} /></div>
+            <div><label style={{ fontSize: 12, fontWeight: 600, color: '#3D4356' }}>Pagado transferencia</label><MoneyInput style={input} value={transf} onChange={setTransf} /></div>
+            <div><label style={{ fontSize: 12, fontWeight: 600, color: '#3D4356' }}>Pagado USD</label><UsdInput style={input} value={usd} onChange={setUsd} /></div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, flexWrap: 'wrap', gap: 10 }}>
             <div style={{ fontSize: 13 }}>
               Costo total: <strong>{fmt(costoTotal)}</strong>
               {' · '}Pagado (ARS): <strong>{fmt(pagoTotal)}</strong>
-              {parseFloat(usd) > 0 && <span style={{ color: '#6B7280' }}> + USD {usd}</span>}
-              {dif !== 0 && parseFloat(usd) === 0 && (
+              {parseUsd(usd) > 0 && <span style={{ color: '#6B7280' }}> + US$ {usd}</span>}
+              {dif !== 0 && parseUsd(usd) === 0 && (
                 <span style={{ color: '#B45309', marginLeft: 8 }}>{dif > 0 ? 'Pagaste de más' : 'Falta pagar'} {fmt(Math.abs(dif))}</span>
               )}
             </div>

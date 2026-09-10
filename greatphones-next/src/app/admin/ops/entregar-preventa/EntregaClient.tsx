@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminTopbar from '@/components/AdminTopbar'
 import { fetchDolar } from '@/app/admin/precios/dolar'
+import { MoneyInput, UsdInput, ImeiInput } from '@/components/campos'
+import { parseMiles, parseUsd, formatMilesInput } from '@/lib/formato'
 
 interface PreEntrega {
   id: string
@@ -128,9 +130,9 @@ export default function EntregaClient() {
   const sel = preorders.find(p => p.id === nPre)
   const saldo = sel ? (sel.saldo ?? sel.price) : 0
   const faltaEquipo = !!sel && sel.tieneEquipo === false
-  const usdPesos = Math.round((parseInt(usd) || 0) * dolarCompra)
+  const usdPesos = Math.round(parseUsd(usd) * dolarCompra)
   const totalIngresado =
-    (parseInt(efec) || 0) + (parseInt(transf) || 0) + (parseInt(cuotas) || 0) + usdPesos
+    parseMiles(efec) + parseMiles(transf) + parseMiles(cuotas) + usdPesos
   const restante = saldo - totalIngresado
 
   const validarPaso = (p: number): Record<string, string> => {
@@ -141,7 +143,7 @@ export default function EntregaClient() {
         preorders.length === 0
           ? 'No hay preventas pendientes de entrega'
           : 'Seleccioná la preventa a entregar'
-    if (p === 1 && faltaEquipo && !(parseInt(eqCosto) >= 0))
+    if (p === 1 && faltaEquipo && !eqCosto.trim())
       e.eqCosto = 'Ingresá el costo del equipo (esta preventa no tiene compra cargada)'
     if (p === 2 && totalIngresado > saldo + 1)
       e.cobros = `Lo que cobrás ahora (${fmt(totalIngresado)}) supera el saldo (${fmt(saldo)})`
@@ -208,9 +210,9 @@ export default function EntregaClient() {
   }
 
   const completarSaldoConEfectivo = () => {
-    const yaOtros = (parseInt(transf) || 0) + (parseInt(cuotas) || 0) + usdPesos
-    const falta = saldo - yaOtros - (parseInt(efec) || 0)
-    if (falta > 0) setEfec(String((parseInt(efec) || 0) + falta))
+    const yaOtros = parseMiles(transf) + parseMiles(cuotas) + usdPesos
+    const falta = saldo - yaOtros - parseMiles(efec)
+    if (falta > 0) setEfec(formatMilesInput(String(parseMiles(efec) + falta)))
     limpiarError('cobros')
   }
 
@@ -236,17 +238,17 @@ export default function EntregaClient() {
         body: JSON.stringify({
           preOrderId: nPre,
           fecha,
-          efectivo: parseInt(efec) || 0,
-          transferencia: parseInt(transf) || 0,
-          cuotas: parseInt(cuotas) || 0,
-          usd: parseInt(usd) || 0,
+          efectivo: parseMiles(efec),
+          transferencia: parseMiles(transf),
+          cuotas: parseMiles(cuotas),
+          usd: parseUsd(usd),
           obs,
           operador,
           confirmarDeuda,
           equipo: faltaEquipo
             ? {
                 imei: eqImei.trim() || null,
-                costo: parseInt(eqCosto) || 0,
+                costo: parseMiles(eqCosto),
                 proveedor: eqProveedor.trim() || null,
                 color: sel?.productColor || null,
                 storage: sel?.productStorage || null,
@@ -852,15 +854,13 @@ export default function EntregaClient() {
                   <label htmlFor="eq-costo" style={{ ...labelStyle, marginTop: 6 }}>
                     Costo del equipo *
                   </label>
-                  <input
+                  <MoneyInput
                     id="eq-costo"
-                    type="number"
-                    min={0}
                     className="cw-input"
                     style={{ ...inputStyle, ...(errors.eqCosto ? inputErrorStyle : {}) }}
                     value={eqCosto}
-                    onChange={e => {
-                      setEqCosto(e.target.value)
+                    onChange={v => {
+                      setEqCosto(v)
                       limpiarError('eqCosto')
                     }}
                     onBlur={() => validarEnBlur('eqCosto')}
@@ -873,12 +873,12 @@ export default function EntregaClient() {
                       <label htmlFor="eq-imei" style={labelStyle}>
                         IMEI / N° serie
                       </label>
-                      <input
+                      <ImeiInput
                         id="eq-imei"
                         className="cw-input"
                         style={inputStyle}
                         value={eqImei}
-                        onChange={e => setEqImei(e.target.value)}
+                        onChange={setEqImei}
                         placeholder="opcional"
                       />
                     </div>
@@ -981,19 +981,25 @@ export default function EntregaClient() {
                     >
                       {lab}
                     </label>
-                    <input
-                      type="number"
-                      min={0}
-                      id={`cobro-${lab.toLowerCase()}`}
-                      className="cw-input"
-                      style={{ ...inputStyle, padding: 8 }}
-                      value={val}
-                      onChange={e => {
-                        set(e.target.value)
-                        limpiarError('cobros')
-                      }}
-                      placeholder="0"
-                    />
+                    {lab === 'USD' ? (
+                      <UsdInput
+                        id={`cobro-${lab.toLowerCase()}`}
+                        className="cw-input"
+                        style={{ ...inputStyle, padding: 8 }}
+                        value={val}
+                        onChange={v => { set(v); limpiarError('cobros') }}
+                        placeholder="0,00"
+                      />
+                    ) : (
+                      <MoneyInput
+                        id={`cobro-${lab.toLowerCase()}`}
+                        className="cw-input"
+                        style={{ ...inputStyle, padding: 8 }}
+                        value={val}
+                        onChange={v => { set(v); limpiarError('cobros') }}
+                        placeholder="0"
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -1030,8 +1036,8 @@ export default function EntregaClient() {
                   }}
                 >
                   {fmt(totalIngresado)}
-                  {parseInt(usd) ? (
-                    <span style={{ fontSize: 11, fontWeight: 600 }}> (incluye {usd} USD)</span>
+                  {parseUsd(usd) ? (
+                    <span style={{ fontSize: 11, fontWeight: 600 }}> (incluye US$ {usd})</span>
                   ) : null}
                 </span>
               </div>
@@ -1575,13 +1581,12 @@ export default function EntregaClient() {
                 <label htmlFor="edit-price" style={labelStyle}>
                   Precio ($)
                 </label>
-                <input
+                <MoneyInput
                   id="edit-price"
-                  type="number"
                   className="cw-input"
                   style={inputStyle}
-                  value={editarData.price || ''}
-                  onChange={e => setEditarData({ ...editarData, price: parseInt(e.target.value) || 0 })}
+                  value={editarData.price ? formatMilesInput(String(editarData.price)) : ''}
+                  onChange={v => setEditarData({ ...editarData, price: parseMiles(v) })}
                 />
 
                 <label htmlFor="edit-expectedDeliveryStart" style={labelStyle}>

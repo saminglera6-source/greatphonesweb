@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminTopbar from '@/components/AdminTopbar'
 import { fmtARS } from '@/lib/precios'
+import { MoneyInput, UsdInput } from '@/components/campos'
+import { parseMiles, parseUsd } from '@/lib/formato'
 
 const OPERADORES = ['Martin', 'Maca', 'Sam', 'Eva', 'Buda']
 const CATEGORIAS = [
@@ -80,9 +82,9 @@ export default function GastoClient() {
     }
   }, [])
 
-  const usdEnPesos = Math.round((parseInt(usd) || 0) * (cotizacion || 1000))
-  const total = (parseInt(efec) || 0) + (parseInt(transf) || 0) + usdEnPesos
-  const montoRef = parseInt(montoGasto) || 0
+  const usdEnPesos = Math.round(parseUsd(usd) * (cotizacion || 1000))
+  const total = parseMiles(efec) + parseMiles(transf) + usdEnPesos
+  const montoRef = parseMiles(montoGasto)
   const descuadre = montoRef > 0 ? Math.abs(total - montoRef) : 0
 
   const validarPaso = (p: number): Record<string, string> => {
@@ -177,9 +179,9 @@ export default function GastoClient() {
           fecha: fechaConHora,
           cat,
           desc: desc.trim(),
-          efec: parseInt(efec) || 0,
-          transf: parseInt(transf) || 0,
-          usd: parseInt(usd) || 0,
+          efec: parseMiles(efec),
+          transf: parseMiles(transf),
+          usd: parseUsd(usd),
           resp,
           comp,
           obs: obs.trim(),
@@ -266,9 +268,9 @@ export default function GastoClient() {
     ['Categoría', cat],
     ['Descripción', desc || '—'],
     ['Monto referencia', montoRef > 0 ? fmtARS(montoRef) : '—'],
-    ['Efectivo', efec ? fmtARS(+efec) : '—'],
-    ['Transferencia', transf ? fmtARS(+transf) : '—'],
-    ['USD', usd ? `${usd} USD ≈ ${fmtARS(usdEnPesos)}` : '—'],
+    ['Efectivo', efec ? fmtARS(parseMiles(efec)) : '—'],
+    ['Transferencia', transf ? fmtARS(parseMiles(transf)) : '—'],
+    ['USD', usd ? `US$ ${usd} ≈ ${fmtARS(usdEnPesos)}` : '—'],
     ['TOTAL PAGADO', fmtARS(total)],
     ['Responsable', resp || '—'],
     ['Comprobante', comp || '—'],
@@ -614,14 +616,12 @@ export default function GastoClient() {
               <label htmlFor="montoGasto" style={{ ...labelStyle, marginTop: 12 }}>
                 Monto del gasto ($) — opcional, para verificar el cuadre
               </label>
-              <input
-                type="number"
-                min={0}
+              <MoneyInput
                 id="montoGasto"
                 className="cw-input"
                 style={inputStyle}
                 value={montoGasto}
-                onChange={e => setMontoGasto(e.target.value)}
+                onChange={setMontoGasto}
                 placeholder="0"
               />
               <div className="cw-grid" style={{ marginTop: 10 }}>
@@ -629,14 +629,12 @@ export default function GastoClient() {
                   <label htmlFor="efec" style={{ ...labelStyle, marginTop: 0 }}>
                     Efectivo ($)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
+                  <MoneyInput
                     {...fieldProps('efec')}
                     className="cw-input"
                     value={efec}
-                    onChange={e => {
-                      setEfec(e.target.value)
+                    onChange={v => {
+                      setEfec(v)
                       limpiarError('pago')
                     }}
                     placeholder="0"
@@ -646,15 +644,13 @@ export default function GastoClient() {
                   <label htmlFor="transf" style={{ ...labelStyle, marginTop: 0 }}>
                     Transferencia ($)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
+                  <MoneyInput
                     id="transf"
                     className="cw-input"
                     style={inputStyle}
                     value={transf}
-                    onChange={e => {
-                      setTransf(e.target.value)
+                    onChange={v => {
+                      setTransf(v)
                       limpiarError('pago')
                     }}
                     placeholder="0"
@@ -664,18 +660,16 @@ export default function GastoClient() {
               <label htmlFor="usd" style={labelStyle}>
                 Monto USD
               </label>
-              <input
-                type="number"
-                min={0}
+              <UsdInput
                 id="usd"
                 className="cw-input"
                 style={inputStyle}
                 value={usd}
-                onChange={e => {
-                  setUsd(e.target.value)
+                onChange={v => {
+                  setUsd(v)
                   limpiarError('pago')
                 }}
-                placeholder="0"
+                placeholder="0,00"
               />
               <p style={{ fontSize: 11, color: '#94A3B8', margin: '5px 0 0' }}>
                 {cotizacion

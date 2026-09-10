@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import AdminTopbar from '@/components/AdminTopbar'
+import { MoneyInput, PctInput, CuilInput } from '@/components/campos'
+import { parseMiles, formatMilesInput } from '@/lib/formato'
 
 const OPERADORES = ['Martin', 'Maca', 'Sam', 'Eva', 'Buda']
 const TOTAL = 6
@@ -218,17 +220,17 @@ export default function ComprasClient() {
       // N° de serie libre y totalmente opcional, igual que la batería.
       if (!isCustomModel && imei.trim() && !/^\d{15}$/.test(imei.trim()))
         e.imei = 'El IMEI debe tener exactamente 15 números'
-      if (battery !== '' && (+battery < 0 || +battery > 100)) e.battery = 'La batería debe estar entre 0 y 100'
+      if (battery !== '' && (parseMiles(battery) < 0 || parseMiles(battery) > 100)) e.battery = 'La batería debe estar entre 0 y 100'
     }
     if (p === 3) {
-      if (tipo === 'COMPRA' && (!precioCompra || +precioCompra <= 0))
+      if (tipo === 'COMPRA' && (parseMiles(precioCompra) <= 0))
         e.precioCompra = 'El precio de compra debe ser mayor a 0'
-      if (tipo === 'CONSIGNACION' && (!precioConsig || +precioConsig <= 0))
+      if (tipo === 'CONSIGNACION' && (parseMiles(precioConsig) <= 0))
         e.precioConsig = 'El precio acordado debe ser mayor a 0'
     }
     if (p === 4 && reparacion === 'Sí') {
-      if (costoRep !== '' && +costoRep < 0) e.costoRep = 'El costo no puede ser negativo'
-      if (precioVenta !== '' && +precioVenta < 0) e.precioVenta = 'El precio no puede ser negativo'
+      if (costoRep !== '' && parseMiles(costoRep) < 0) e.costoRep = 'El costo no puede ser negativo'
+      if (precioVenta !== '' && parseMiles(precioVenta) < 0) e.precioVenta = 'El precio no puede ser negativo'
     }
     if (p === 5 && esPreventa === 'Si' && !nPre) e.nPre = 'Seleccioná la preventa a vincular'
     return e
@@ -341,18 +343,18 @@ export default function ComprasClient() {
           marca,
           deviceType,
           imei,
-          battery: battery !== '' ? +battery : undefined,
+          battery: battery !== '' ? parseMiles(battery) : undefined,
           color,
           storage,
           ram: ram || undefined,
           imageUrl,
           estadoFisico,
-          precioCompra: +precioCompra || 0,
-          precioConsig: +precioConsig || 0,
+          precioCompra: parseMiles(precioCompra),
+          precioConsig: parseMiles(precioConsig),
           formaPago,
           reparacion,
-          costoRep: +costoRep || 0,
-          precioVenta: +precioVenta || 0,
+          costoRep: parseMiles(costoRep),
+          precioVenta: parseMiles(precioVenta),
           esPreventa,
           nPreAsociada: esPreventa === 'Si' ? nPre : '',
           operador,
@@ -467,7 +469,7 @@ export default function ComprasClient() {
     [
       '¿Necesita arreglo?',
       reparacion === 'Sí'
-        ? `Sí — ${fmt(+costoRep || 0)} (venta est. ${fmt(+precioVenta || 0)})`
+        ? `Sí — ${fmt(parseMiles(costoRep))} (venta est. ${fmt(parseMiles(precioVenta))})`
         : 'No',
     ],
     [
@@ -814,13 +816,11 @@ export default function ComprasClient() {
                   <label htmlFor="cuil" style={{ ...labelStyle, marginTop: 0 }}>
                     CUIL/CUIT proveedor
                   </label>
-                  <input
+                  <CuilInput
                     {...fieldProps('cuil')}
                     className="cw-input"
                     value={cuil}
-                    onChange={e => setCuil(e.target.value)}
-                    placeholder="Ej: 20-12345678-9"
-                    inputMode="numeric"
+                    onChange={setCuil}
                   />
                 </div>
               </div>
@@ -1135,15 +1135,12 @@ export default function ComprasClient() {
                   <label htmlFor="battery" style={{ ...labelStyle, marginTop: 0 }}>
                     Batería (%)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
+                  <PctInput
                     {...fieldProps('battery')}
                     className="cw-input"
                     value={battery}
-                    onChange={e => {
-                      setBattery(e.target.value)
+                    onChange={v => {
+                      setBattery(v)
                       limpiarError('battery')
                     }}
                     onBlur={() => validarEnBlur('battery')}
@@ -1187,14 +1184,12 @@ export default function ComprasClient() {
                   <label htmlFor="precioCompra" style={labelStyle}>
                     Precio de compra ($) *
                   </label>
-                  <input
-                    type="number"
-                    min={0}
+                  <MoneyInput
                     {...fieldProps('precioCompra')}
                     className="cw-input"
                     value={precioCompra}
-                    onChange={e => {
-                      setPrecioCompra(e.target.value)
+                    onChange={v => {
+                      setPrecioCompra(v)
                       limpiarError('precioCompra')
                     }}
                     onBlur={() => validarEnBlur('precioCompra')}
@@ -1214,14 +1209,12 @@ export default function ComprasClient() {
                   <label htmlFor="precioConsig" style={labelStyle}>
                     Precio acordado consignación ($) *
                   </label>
-                  <input
-                    type="number"
-                    min={0}
+                  <MoneyInput
                     {...fieldProps('precioConsig')}
                     className="cw-input"
                     value={precioConsig}
-                    onChange={e => {
-                      setPrecioConsig(e.target.value)
+                    onChange={v => {
+                      setPrecioConsig(v)
                       limpiarError('precioConsig')
                     }}
                     onBlur={() => validarEnBlur('precioConsig')}
@@ -1274,7 +1267,7 @@ export default function ComprasClient() {
                     onClick={() => {
                       setReparacion(op)
                       if (op === 'Sí' && !precioVenta && precioListaMatch > 0) {
-                        setPrecioVenta(String(precioListaMatch))
+                        setPrecioVenta(formatMilesInput(String(precioListaMatch)))
                       }
                     }}
                     style={{
@@ -1299,14 +1292,12 @@ export default function ComprasClient() {
                     <label htmlFor="costoRep" style={{ ...labelStyle, marginTop: 0 }}>
                       Costo reparación ($)
                     </label>
-                    <input
-                      type="number"
-                      min={0}
+                    <MoneyInput
                       {...fieldProps('costoRep')}
                       className="cw-input"
                       value={costoRep}
-                      onChange={e => {
-                        setCostoRep(e.target.value)
+                      onChange={v => {
+                        setCostoRep(v)
                         limpiarError('costoRep')
                       }}
                       onBlur={() => validarEnBlur('costoRep')}
@@ -1322,14 +1313,12 @@ export default function ComprasClient() {
                     <label htmlFor="precioVenta" style={{ ...labelStyle, marginTop: 0 }}>
                       Precio estimado venta ($)
                     </label>
-                    <input
-                      type="number"
-                      min={0}
+                    <MoneyInput
                       {...fieldProps('precioVenta')}
                       className="cw-input"
                       value={precioVenta}
-                      onChange={e => {
-                        setPrecioVenta(e.target.value)
+                      onChange={v => {
+                        setPrecioVenta(v)
                         limpiarError('precioVenta')
                       }}
                       onBlur={() => validarEnBlur('precioVenta')}

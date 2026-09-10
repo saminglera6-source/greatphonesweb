@@ -662,7 +662,7 @@ export default function VentasClient() {
           {step === 1 && (
             <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
               <legend style={{ fontSize: 15, fontWeight: 800, color: '#181B2E', marginBottom: 2 }}>
-                ¿Quién vende y qué equipo?
+                Operador y equipo
               </legend>
               <label htmlFor="operador" style={labelStyle}>
                 Operador *

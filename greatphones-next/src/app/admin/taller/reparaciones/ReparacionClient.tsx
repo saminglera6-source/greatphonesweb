@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AdminTopbar from '@/components/AdminTopbar'
 import { fmtARS } from '@/lib/precios'
+import { MoneyInput, ImeiInput, TelInput } from '@/components/campos'
+import { parseMiles } from '@/lib/formato'
 
 const OPERADORES = ['Martin', 'Maca', 'Sam', 'Eva', 'Buda']
 const TOTAL = 6
@@ -279,11 +281,11 @@ export default function ReparacionClient() {
               .join(' | ')
           : '',
         tiempoEstimadoHoras: presu ? presu.horasEstimadas : 0,
-        precioCob: Number(precioCob) || 0,
-        efec: Number(efec) || 0,
-        transf: Number(transf) || 0,
+        precioCob: parseMiles(precioCob),
+        efec: parseMiles(efec),
+        transf: parseMiles(transf),
         thirdParty,
-        thirdPartyCost: thirdParty ? Number(thirdPartyCost) || 0 : undefined,
+        thirdPartyCost: thirdParty ? parseMiles(thirdPartyCost) : undefined,
         obs: obs.trim(),
         operador,
       }
@@ -394,7 +396,7 @@ export default function ReparacionClient() {
       presu ? (presu.estado === 'DIAGNOSTICO' ? 'A confirmar' : fmtARS(presu.precioTotal)) : '—',
     ],
     ['Tiempo estimado', presu ? repDias(presu.horasEstimadas) : '—'],
-    ['Precio cobrado', fmtARS(Number(precioCob) || 0)],
+    ['Precio cobrado', fmtARS(parseMiles(precioCob))],
   ]
 
   return (
@@ -730,14 +732,12 @@ export default function ReparacionClient() {
                   <label htmlFor="tel" style={{ ...labelStyle, marginTop: 0 }}>
                     Teléfono
                   </label>
-                  <input
+                  <TelInput
                     id="tel"
                     className="cw-input"
                     style={inputStyle}
                     value={tel}
-                    onChange={e => setTel(e.target.value)}
-                    placeholder="Ej: 2914123456"
-                    inputMode="tel"
+                    onChange={setTel}
                   />
                 </div>
               </div>
@@ -780,14 +780,12 @@ export default function ReparacionClient() {
                   <label htmlFor="imei" style={{ ...labelStyle, marginTop: 0 }}>
                     IMEI
                   </label>
-                  <input
+                  <ImeiInput
                     id="imei"
                     className="cw-input"
                     style={inputStyle}
                     value={imei}
-                    onChange={e => setImei(e.target.value)}
-                    placeholder="15 dígitos"
-                    inputMode="numeric"
+                    onChange={setImei}
                   />
                 </div>
                 <div>
@@ -1086,13 +1084,11 @@ export default function ReparacionClient() {
               <label htmlFor="precioCob" style={{ ...labelStyle, marginTop: 12 }}>
                 Precio cobrado ($)
               </label>
-              <input
-                type="number"
-                min={0}
+              <MoneyInput
                 {...fieldProps('precioCob')}
                 className="cw-input"
                 value={precioCob}
-                onChange={e => setPrecioCob(e.target.value)}
+                onChange={setPrecioCob}
                 placeholder="0"
               />
               <div className="cw-grid" style={{ marginTop: 10 }}>
@@ -1100,14 +1096,12 @@ export default function ReparacionClient() {
                   <label htmlFor="efec" style={{ ...labelStyle, marginTop: 0 }}>
                     Cobrado efectivo ($)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
+                  <MoneyInput
                     id="efec"
                     className="cw-input"
                     style={inputStyle}
                     value={efec}
-                    onChange={e => setEfec(e.target.value)}
+                    onChange={setEfec}
                     placeholder="0"
                   />
                 </div>
@@ -1115,14 +1109,12 @@ export default function ReparacionClient() {
                   <label htmlFor="transf" style={{ ...labelStyle, marginTop: 0 }}>
                     Cobrado transferencia ($)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
+                  <MoneyInput
                     id="transf"
                     className="cw-input"
                     style={inputStyle}
                     value={transf}
-                    onChange={e => setTransf(e.target.value)}
+                    onChange={setTransf}
                     placeholder="0"
                   />
                 </div>
@@ -1161,14 +1153,12 @@ export default function ReparacionClient() {
                   <label htmlFor="thirdPartyCost" style={{ ...labelStyle, marginTop: 0 }}>
                     Costo del tercero ($)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
+                  <MoneyInput
                     id="thirdPartyCost"
                     className="cw-input"
                     style={inputStyle}
                     value={thirdPartyCost}
-                    onChange={e => setThirdPartyCost(e.target.value)}
+                    onChange={setThirdPartyCost}
                     placeholder="0"
                   />
                 </div>
