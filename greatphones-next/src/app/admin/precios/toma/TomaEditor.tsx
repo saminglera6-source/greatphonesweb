@@ -205,8 +205,9 @@ export default function TomaEditor() {
   }
 
   const eliminar = async (id: string) => {
-    if (!confirm('¿Eliminar este modelo?')) return
-    const r = await fetch(`/api/admin/precios/toma?id=${id}`, {
+    const motivo = prompt('Motivo de la baja de este precio de toma:')?.trim()
+    if (!motivo) return
+    const r = await fetch(`/api/admin/precios/toma?id=${id}&motivo=${encodeURIComponent(motivo)}`, {
       method: 'DELETE',
       credentials: 'include',
     })

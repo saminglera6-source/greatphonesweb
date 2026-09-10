@@ -20,7 +20,8 @@ const PreventaSchema = z.object({
   fechaDesde: z.string().optional(),
   fechaHasta: z.string().optional(),
   obs: z.string().optional(),
-  operador: z.string().optional(),
+  // ERP regla 100/102: operador declarado explícito en toda operación.
+  operador: z.preprocess(v => v ?? '', z.string().min(1, 'Seleccioná el operador')),
 })
 
 export async function GET(request: Request) {

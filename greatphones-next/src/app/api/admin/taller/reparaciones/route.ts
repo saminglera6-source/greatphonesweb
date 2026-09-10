@@ -3,11 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-guard'
 import { registerEntry } from '@/lib/accounting'
 import { auditar } from '@/lib/audit'
+import { nextCorrelativo } from '@/lib/correlativo'
 import { z } from 'zod'
-
-function genCode() {
-  return 'REP-' + Date.now().toString().slice(-7)
-}
 
 const CreateSchema = z.object({
   tipo: z.string().optional(),
@@ -164,13 +161,15 @@ export async function POST(request: Request) {
       )
 
     const d = parsed.data
-    const code = genCode()
 
     const pricePaid = d.precioCob || 0
     const costValue = d.cost || 0
     const thirdPartyCostValue = d.thirdPartyCost || 0
     const isThirdParty = d.thirdParty && thirdPartyCostValue > 0
     const profitReal = isThirdParty ? pricePaid - thirdPartyCostValue : pricePaid - costValue
+
+    // Número correlativo REP-nnnn (regla 9), bajo advisory lock transaccional.
+    const code = await prisma.$transaction(tx => nextCorrelativo(tx, 'REP', tx.repair))
 
     const repair = await prisma.repair.create({
       data: {
@@ -206,6 +205,8 @@ export async function POST(request: Request) {
       entityId: repair.id,
       action: 'CREACION',
       reason: 'Ingreso de reparación',
+      operator: d.operador,
+      createdById: admin.id,
     }).catch(() => {})
 
     // Cobro al ingresar: un asiento por medio (efectivo/transferencia)

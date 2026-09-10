@@ -46,11 +46,17 @@ function norm(s: string | null | undefined) {
   return (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
-async function nextCode(): Promise<string> {
-  // Correlativo por operación, no por línea: cada compra crea varias filas
-  // AccessoryPurchase que comparten el mismo `code`.
-  const rows = await prisma.accessoryPurchase.findMany({ distinct: ['code'], select: { code: true } })
-  return `CAC-${String(1000 + rows.length + 1).slice(1)}`
+async function nextCode(tx: any): Promise<string> {
+  // Correlativo por operación, no por línea (ERP regla 9): cada compra crea
+  // varias filas AccessoryPurchase que comparten el mismo `code`. Advisory
+  // lock transaccional para que dos compras simultáneas no tomen el mismo N°.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'correlativo:CAC'}))`
+  const rows: { code: string }[] = await tx.accessoryPurchase.findMany({
+    distinct: ['code'],
+    select: { code: true },
+    where: { code: { startsWith: 'CAC-' } },
+  })
+  return `CAC-${String(rows.length + 1).padStart(4, '0')}`
 }
 
 export async function registrarCompraAccesorios(input: RegistrarCompraAccInput) {
@@ -71,9 +77,9 @@ export async function registrarCompraAccesorios(input: RegistrarCompraAccInput) 
     )
   }
 
-  const code = await nextCode()
-
   const result = await prisma.$transaction(async tx => {
+    const code = await nextCode(tx)
+
     for (const l of lineas) {
       // Resolver o crear el accesorio por combinación normalizada.
       const candidatos = await tx.accessory.findMany({

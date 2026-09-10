@@ -75,6 +75,7 @@ export default function ComprasAccesoriosClient() {
           precioVenta: parseInt(l.precioVenta) || null,
         })),
     }
+    if (!operador) return setMsg({ t: 'err', s: 'Seleccioná el operador' })
     if (payload.lineas.length === 0) return setMsg({ t: 'err', s: 'Cargá al menos una línea con categoría y producto' })
     setEnviando(true)
     try {
@@ -118,7 +119,7 @@ export default function ComprasAccesoriosClient() {
               <input style={input} value={proveedor} onChange={e => setProveedor(e.target.value)} placeholder="Ej: Mayorista Norte" />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#3D4356' }}>Operador</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#3D4356' }}>Operador *</label>
               <select style={input} value={operador} onChange={e => setOperador(e.target.value)}>
                 <option value="">Seleccionar…</option>
                 {OPERADORES.map(o => <option key={o} value={o}>{o}</option>)}

@@ -3,11 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-guard'
 import { registerEntry } from '@/lib/accounting'
 import { auditar } from '@/lib/audit'
+import { nextCorrelativo } from '@/lib/correlativo'
 import { z } from 'zod'
-
-function genCode() {
-  return 'REP-' + Date.now().toString().slice(-7)
-}
 
 const CreateSchema = z.object({
   type: z.string().optional(),
@@ -81,9 +78,10 @@ export async function POST(request: Request) {
       const parsed = CreateSchema.safeParse(body.data || body)
       if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || 'Datos inválidos' }, { status: 400 })
       const d = parsed.data
+      const code = await prisma.$transaction(tx => nextCorrelativo(tx, 'REP', tx.repair))
       const repair = await prisma.repair.create({
         data: {
-          code: genCode(),
+          code,
           userId: 'admin',
           device: d.device,
           issue: d.issue,

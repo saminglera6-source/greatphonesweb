@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-guard'
+import { auditar } from '@/lib/audit'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    await requireAdmin(request)
+    const admin = await requireAdmin(request)
     const body = await request.json()
     const { id, role } = body
 
@@ -45,11 +46,32 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Rol inválido' }, { status: 400 })
     }
 
+    const previo = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, role: true },
+    })
+    if (!previo) {
+      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
+    }
+
     const user = await prisma.user.update({
       where: { id },
       data: { role: role as 'ADMIN' | 'CLIENT' },
       select: { id: true, name: true, email: true, role: true },
     })
+
+    // Traza de responsable (ERP §3.20): cambiar un rol es una acción sensible.
+    if (previo.role !== user.role) {
+      await auditar({
+        entityType: 'User',
+        entityId: id,
+        action: 'UPDATE',
+        reason: `Rol ${previo.role} → ${user.role} (${previo.email})`,
+        operator: admin.email,
+        createdById: admin.id,
+        snapshot: previo,
+      }).catch(() => {})
+    }
 
     return NextResponse.json(user)
   } catch (error) {
@@ -66,7 +88,7 @@ export async function PUT(request: Request) {
  */
 export async function DELETE(request: Request) {
   try {
-    await requireAdmin(request)
+    const admin = await requireAdmin(request)
     const { searchParams } = new URL(request.url)
     const rawIds = searchParams.get('ids')
     const singleId = searchParams.get('id')
@@ -100,11 +122,24 @@ export async function DELETE(request: Request) {
       const tieneOps = orders + sales + quotes + repairs + preorders + coupons + guarantees > 0
 
       if (tieneOps) {
+        const previo = await prisma.user.findUnique({
+          where: { id },
+          select: { id: true, name: true, email: true, role: true, active: true },
+        })
         await prisma.user.update({
           where: { id },
           data: { active: false, deactivatedAt: new Date(), deactivatedReason: reason },
         })
         await prisma.session.deleteMany({ where: { userId: id } }) // cerrar sesiones
+        await auditar({
+          entityType: 'User',
+          entityId: id,
+          action: 'ANULACION',
+          reason: `Baja de usuario ${previo?.email || id}${reason ? ' — ' + reason : ''}`,
+          operator: admin.email,
+          createdById: admin.id,
+          snapshot: previo,
+        }).catch(() => {})
         deactivated++
       } else {
         await prisma.$transaction(async tx => {

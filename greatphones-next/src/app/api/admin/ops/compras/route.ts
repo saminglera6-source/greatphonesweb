@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth-guard'
 import { registerEntry } from '@/lib/accounting'
 import { auditar } from '@/lib/audit'
 import { productCache } from '@/lib/cache'
+import { nextCorrelativo } from '@/lib/correlativo'
 import { z } from 'zod'
 
 // La Lista de Precios guarda los colores en inglés (Apple), pero el resto
@@ -70,7 +71,8 @@ const CompraSchema = z.object({
     return false
   }),
   nPreAsociada: z.string().optional(),
-  operador: z.string().optional(),
+  // ERP regla 100/102: operador declarado explícito en toda operación.
+  operador: z.preprocess(v => v ?? '', z.string().min(1, 'Seleccioná el operador')),
 })
 
 export async function GET(request: Request) {
@@ -101,7 +103,10 @@ export async function POST(request: Request) {
     if (d.tipo === 'COMPRA' && d.precioCompra <= 0) return NextResponse.json({ error: 'Para COMPRA, el precio de compra debe ser > 0' }, { status: 400 })
     if (d.tipo === 'CONSIGNACION' && d.precioConsig <= 0) return NextResponse.json({ error: 'Para CONSIGNACION, el precio acordado debe ser > 0' }, { status: 400 })
 
-    const numero = 'CMP-' + Date.now().toString().slice(-7)
+    // El número correlativo CMP-nnnn se calcula dentro de la transacción
+    // (bajo advisory lock, regla 9). `numero` queda disponible después para
+    // el asiento contable y la respuesta.
+    let numero = ''
 
     // Validar preventa antes de abrir transacción
     let preOrderToUpdate = null
@@ -133,6 +138,8 @@ export async function POST(request: Request) {
 
     // Crear dentro de una transacción
     const result = await prisma.$transaction(async (tx) => {
+      numero = await nextCorrelativo(tx, 'CMP', tx.inventoryItem)
+
       // Buscar si ya existe un Product para esta misma variante (mismo
       // modelo/marca/storage/color, igual que el matching que ya usa
       // src/app/api/inventory/route.ts) para sumar stock en vez de crear un
@@ -236,7 +243,7 @@ export async function POST(request: Request) {
         type: d.tipo === 'COMPRA' ? 'EGRESO' : 'NEUTRO',
         means: d.formaPago === 'Transferencia' ? 'TRANSFERENCIA' : 'EFECTIVO',
         amount: monto,
-        operator: d.operador || admin.id,
+        operator: d.operador,
         createdById: admin.id,
       }).catch(e => console.error('[Ops Compras] asiento:', e))
     }

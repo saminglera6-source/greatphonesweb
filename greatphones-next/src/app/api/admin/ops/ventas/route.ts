@@ -22,7 +22,8 @@ const VentaSchema = z.object({
     .optional(),
   obs: z.string().optional(),
   entregarRegalos: z.boolean().optional(),
-  operador: z.string().optional(),
+  // ERP regla 100/102: toda operación queda con operador declarado explícito.
+  operador: z.preprocess(v => v ?? '', z.string().min(1, 'Seleccioná el operador')),
 })
 
 export async function GET(request: Request) {

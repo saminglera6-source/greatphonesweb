@@ -20,7 +20,8 @@ const Schema = z.object({
   efectivo: z.number().int().min(0).default(0),
   transferencia: z.number().int().min(0).default(0),
   usd: z.number().min(0).default(0),
-  operador: z.string().optional(),
+  // ERP regla 100/102: operador declarado explícito en toda operación.
+  operador: z.preprocess(v => v ?? '', z.string().min(1, 'Seleccioná el operador')),
   obs: z.string().optional(),
 })
 

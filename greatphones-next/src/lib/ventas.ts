@@ -3,6 +3,7 @@ import { registerEntry } from '@/lib/accounting'
 import { auditar } from '@/lib/audit'
 import { dolarActual } from '@/lib/dolar-server'
 import { getGiftRules, matchGiftRule } from '@/lib/config'
+import { nextCorrelativo } from '@/lib/correlativo'
 
 /**
  * Venta de un equipo (ERP §4.2, reglas 27-33).
@@ -86,9 +87,6 @@ function prorratear(medios: Medio[], pesoEquipo: number, pesosAcc: number[], tot
   })
 }
 
-function genCode(prefix: string) {
-  return `${prefix}-` + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase()
-}
 
 export async function registrarVenta(input: RegistrarVentaInput) {
   if (!input.cliente?.trim()) throw new VentaError('El cliente es obligatorio')
@@ -145,14 +143,17 @@ export async function registrarVenta(input: RegistrarVentaInput) {
     }
   }
 
-  const numero = genCode('VTA')
   const distrib = prorratear(medios, input.precioVenta, accs.map(a => a.precio), totalOperacion)
 
   const cobradoEquipoPesos = distrib.reduce((s, d) => s + d.equipo.ars, 0)
   const gananciaTeorica = input.precioVenta - costo
   const gananciaCobrada = cobradoEquipoPesos - costo
 
+  let numero = ''
   const result = await prisma.$transaction(async tx => {
+    // Número correlativo VTA-nnnn (regla 9), bajo advisory lock hasta el commit.
+    numero = await nextCorrelativo(tx, 'VTA', tx.sale)
+
     // Descontar stock del equipo.
     await tx.product.update({
       where: { id: producto.id },
@@ -257,10 +258,11 @@ export async function registrarVenta(input: RegistrarVentaInput) {
           },
         })
         if (acc && (acc.stock || 0) > 0) {
+          const regNumero = await prisma.$transaction(gtx => nextCorrelativo(gtx, 'REG', gtx.sale))
           await prisma.accessory.update({ where: { id: acc.id }, data: { stock: { decrement: 1 } } })
           await prisma.sale.create({
             data: {
-              code: genCode('REG'),
+              code: regNumero,
               userId: (await prisma.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } }))!.id,
               device: `Regalo: ${acc.name}`,
               price: 0,

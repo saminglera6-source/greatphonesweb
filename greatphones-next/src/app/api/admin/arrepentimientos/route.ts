@@ -1,6 +1,7 @@
 ﻿import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-guard'
+import { auditar } from '@/lib/audit'
 
 
 
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    await requireAdmin(request)
+    const admin = await requireAdmin(request)
     const body = await request.json()
     const { id, estado } = body
 
@@ -54,15 +55,31 @@ export async function PATCH(request: Request) {
     const validStates = ['PENDIENTE', 'APROBADO', 'RECHAZADO', 'COMPLETADO']
     if (!validStates.includes(estado)) {
       return NextResponse.json(
-        { error: 'Estado invÃ¡lido' },
+        { error: 'Estado inválido' },
         { status: 400 }
       )
+    }
+
+    const previo = await prisma.arrepentimiento.findUnique({ where: { id } })
+    if (!previo) {
+      return NextResponse.json({ error: 'Arrepentimiento no encontrado' }, { status: 404 })
     }
 
     const updated = await prisma.arrepentimiento.update({
       where: { id },
       data: { estado }
     })
+
+    // Traza de responsable (ERP §3.20): quién cambió el estado y desde cuál.
+    await auditar({
+      entityType: 'Arrepentimiento',
+      entityId: id,
+      action: 'UPDATE',
+      reason: `Arrepentimiento ${previo.estado} → ${estado}`,
+      operator: admin.email,
+      createdById: admin.id,
+      snapshot: previo,
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

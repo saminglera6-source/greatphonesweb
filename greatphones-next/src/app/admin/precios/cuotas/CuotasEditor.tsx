@@ -187,8 +187,9 @@ export default function CuotasEditor() {
   }
 
   const eliminar = async (id: string) => {
-    if (!confirm('¿Eliminar esta configuración de cuota?')) return
-    const r = await fetch(`/api/admin/precios/cuotas?id=${id}`, {
+    const motivo = prompt('Motivo de la baja de este plan de cuotas:')?.trim()
+    if (!motivo) return
+    const r = await fetch(`/api/admin/precios/cuotas?id=${id}&motivo=${encodeURIComponent(motivo)}`, {
       method: 'DELETE',
       credentials: 'include',
     })

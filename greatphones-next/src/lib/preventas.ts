@@ -3,6 +3,7 @@ import { registerEntry } from '@/lib/accounting'
 import { dolarActual } from '@/lib/dolar-server'
 import { auditar } from '@/lib/audit'
 import { calcularRangoEntrega, validarRangoEntrega } from '@/lib/dias-habiles'
+import { nextCorrelativo } from '@/lib/correlativo'
 
 /**
  * Ciclo de preventa (Fase 1 — paridad con el ERP §4.3 y §4.4).
@@ -105,21 +106,14 @@ function totalCobroPesos(c: Cobro, usdRate: number): number {
 }
 
 // ── Numeración ─────────────────────────────────────────────────────────────
-// Correlativo por prefijo, contando en el modelo correspondiente.
-// (Fase 1: suficiente; la numeración global con secuencia Postgres es tarea
-// aparte — ver T-4 de la auditoría.)
-async function nextPreCode(client: any = prisma): Promise<string> {
-  const n = await client.preOrder.count({ where: { code: { startsWith: 'PRE-' } } })
-  return `PRE-${String(n + 1).padStart(4, '0')}`
-}
-async function nextInvCode(client: any = prisma): Promise<string> {
-  const n = await client.inventoryItem.count({ where: { code: { startsWith: 'CMP-' } } })
-  return `CMP-${String(n + 1).padStart(4, '0')}`
-}
-async function nextSaleCode(client: any = prisma): Promise<string> {
-  const n = await client.sale.count({ where: { code: { startsWith: 'VTA-PRE-' } } })
-  return `VTA-PRE-${String(n + 1).padStart(4, '0')}`
-}
+// Correlativo por prefijo (ERP regla 9) vía nextCorrelativo: cuenta las filas
+// del modelo con ese prefijo bajo un advisory lock transaccional. Debe correr
+// dentro de una prisma.$transaction.
+const nextPreCode = (tx: any) => nextCorrelativo(tx, 'PRE', tx.preOrder)
+const nextInvCode = (tx: any) => nextCorrelativo(tx, 'CMP', tx.inventoryItem)
+// La entrega de una preventa genera una Venta normal: mismo correlativo VTA
+// que las ventas de mostrador (ERP §4.2, una sola hoja de Ventas).
+const nextSaleCode = (tx: any) => nextCorrelativo(tx, 'VTA', tx.sale)
 
 // ══════════════════════════════════════════════════════════════════════════
 //  REGISTRAR PREVENTA
@@ -176,12 +170,12 @@ export async function registrarPreventa(input: RegistrarPreventaInput) {
     }
   }
 
-  const code = await nextPreCode()
   const medios = mediosDeCobro(input.cobro, usdRate)
   const collectedUsd = medios.reduce((s, m) => s + m.usd, 0)
   const collectedArs = medios.filter(m => m.pm !== 'USD').reduce((s, m) => s + m.ars, 0)
 
   const pre = await prisma.$transaction(async tx => {
+    const code = await nextPreCode(tx)
     const created = await tx.preOrder.create({
       data: {
         code,
@@ -234,7 +228,7 @@ export async function registrarPreventa(input: RegistrarPreventaInput) {
     createdById: input.createdById || null,
   }).catch(() => {})
 
-  return { code, preOrder: pre, saldo: saldoPendiente(pre, usdRate) }
+  return { code: pre.code, preOrder: pre, saldo: saldoPendiente(pre, usdRate) }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

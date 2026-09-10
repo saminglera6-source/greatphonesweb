@@ -15,6 +15,12 @@ type AuditableEntity =
   | 'Quote'
   | 'PreOrder'
   | 'AccountingEntry'
+  | 'User'
+  | 'Arrepentimiento'
+  | 'PriceList'
+  | 'PriceTradeIn'
+  | 'CuotasConfig'
+  | 'AppConfig'
 
 const ENTITY_MODEL: Record<AuditableEntity, string> = {
   Product: 'product',
@@ -24,6 +30,12 @@ const ENTITY_MODEL: Record<AuditableEntity, string> = {
   Quote: 'quote',
   PreOrder: 'preOrder',
   AccountingEntry: 'accountingEntry',
+  User: 'user',
+  Arrepentimiento: 'arrepentimiento',
+  PriceList: 'priceList',
+  PriceTradeIn: 'priceTradeIn',
+  CuotasConfig: 'cuotasConfig',
+  AppConfig: 'appConfig',
 }
 
 async function getEntitySnapshot(entityType: AuditableEntity, entityId: string) {
@@ -41,13 +53,18 @@ async function getEntitySnapshot(entityType: AuditableEntity, entityId: string) 
 export async function auditar(opts: {
   entityType: AuditableEntity
   entityId: string
-  action?: 'ANULACION' | 'RESTAURACION' | 'CORRECCION' | 'CREACION' | 'UPDATE' | 'VENTA'
+  action?: 'ANULACION' | 'RESTAURACION' | 'CORRECCION' | 'CREACION' | 'UPDATE'
   reason?: string | null
   operator?: string | null
   createdById?: string | null
   metadata?: Record<string, unknown>
+  /** Snapshot explícito. Si se pasa, no se busca la entidad por id (útil para
+   *  entidades sin PK `id` o cuando ya se tiene el estado previo en mano). */
+  snapshot?: unknown
 }) {
-  const snapshot = await getEntitySnapshot(opts.entityType, opts.entityId)
+  const snapshot = opts.snapshot !== undefined
+    ? opts.snapshot
+    : await getEntitySnapshot(opts.entityType, opts.entityId)
   await prisma.auditLog.create({
     data: {
       entityType: opts.entityType,
