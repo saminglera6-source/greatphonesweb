@@ -86,11 +86,16 @@ export async function POST(request: Request) {
 
       // Movimiento + asiento en una sola transacción: si el asiento falla,
       // el movimiento y el nuevo capital se revierten (T-8).
-      // NOTA: la dirección del asiento acá NO respeta el ERP §5.8
-      // (RETIRO_CAPITAL y PAGO_RENDIMIENTO deberían ser EGRESO, no INGRESO/nada).
-      // Se conserva el comportamiento actual — el ajuste de dirección es un
-      // cambio de flujo de caja pendiente de confirmación.
-      const moneyIn = d.type === 'INGRESO_CAPITAL' || d.type === 'PAGO_RENDIMIENTO' || (d.type === 'AJUSTE' && d.amount > 0)
+      // Dirección del asiento según ERP §5.8; medio siempre TRANSFERENCIA (regla 76):
+      //   INGRESO_CAPITAL   → INGRESO  (entra plata al negocio)
+      //   RETIRO_CAPITAL    → EGRESO   (el inversor retira capital)
+      //   PAGO_RENDIMIENTO  → EGRESO   (se le paga el rendimiento acumulado)
+      //   AJUSTE            → NEUTRO   (corrección sin movimiento real de caja)
+      const tipoAsiento: 'INGRESO' | 'EGRESO' | 'NEUTRO' | null =
+        d.type === 'INGRESO_CAPITAL' ? 'INGRESO'
+        : d.type === 'RETIRO_CAPITAL' || d.type === 'PAGO_RENDIMIENTO' ? 'EGRESO'
+        : d.type === 'AJUSTE' ? 'NEUTRO'
+        : null
 
       await prisma.$transaction(async tx => {
         await tx.investor.update({
@@ -107,14 +112,14 @@ export async function POST(request: Request) {
             operator: d.operator || null,
           },
         })
-        if (moneyIn) {
+        if (tipoAsiento && d.amount !== 0) {
           await registerEntry({
             source: 'INVERSOR',
             description: `Inversor ${inv.name} — ${d.detail || d.type}`,
             category: 'Inversores',
-            type: 'INGRESO',
+            type: tipoAsiento,
             means: 'TRANSFERENCIA',
-            amount: d.amount,
+            amount: Math.abs(d.amount),
             operator: d.operator || null,
           }, tx)
         }
