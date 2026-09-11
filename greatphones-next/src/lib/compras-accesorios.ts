@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { registerEntry } from '@/lib/accounting'
 import { dolarActual } from '@/lib/dolar-server'
 import { nextCorrelativo } from '@/lib/correlativo'
+import { enqueueSheetSync } from '@/lib/erp-sheet'
 
 /**
  * Compra de accesorios (ERP §4.5, reglas 77-79, 84-85).
@@ -152,6 +153,23 @@ export async function registrarCompraAccesorios(input: RegistrarCompraAccInput) 
     }
 
     return { code, lineas: lineas.length, costoTotal }
+  })
+
+  await enqueueSheetSync('COMPRA_ACCESORIOS', result.code, {
+    numero: result.code,
+    fecha: new Date().toISOString().slice(0, 10),
+    proveedor: input.proveedor || '',
+    operador: input.operador || '',
+    formaPago: `efec ${ef} / transf ${tr} / usd ${us}`,
+    lineas: lineas.map(l => ({
+      categoria: l.categoria,
+      producto: l.producto,
+      marca: l.marca || '',
+      color: l.color || '',
+      cantidad: l.cantidad,
+      costoUnit: l.costoUnit,
+      precioVenta: l.precioVenta || '',
+    })),
   })
 
   return result

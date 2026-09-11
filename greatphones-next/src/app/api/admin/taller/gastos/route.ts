@@ -4,6 +4,7 @@ import { requireAdmin, handleRouteError } from '@/lib/auth-guard'
 import { registerEntry } from '@/lib/accounting'
 import { obtenerDolar } from '@/lib/precios'
 import { nextCorrelativo } from '@/lib/correlativo'
+import { enqueueSheetSync } from '@/lib/erp-sheet'
 import { z } from 'zod'
 
 const GastoSchema = z.object({
@@ -72,6 +73,21 @@ export async function POST(request: Request) {
         }, tx)
       }
       return code
+    })
+
+    // Replicar al sheet ERP (nunca bloquea el gasto).
+    await enqueueSheetSync('GASTO', nGas, {
+      numero: nGas,
+      fecha: d.fecha || new Date().toISOString().slice(0, 10),
+      categoria: d.cat,
+      descripcion: d.desc,
+      montoEfectivo: efec,
+      montoTransferencia: transf,
+      montoUsd: usd,
+      responsable: d.resp || '',
+      comprobante: d.comp || '',
+      montoTotal,
+      operador: d.operador,
     })
 
     return NextResponse.json({

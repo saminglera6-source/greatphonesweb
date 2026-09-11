@@ -4,6 +4,7 @@ import { auditar } from '@/lib/audit'
 import { dolarActual } from '@/lib/dolar-server'
 import { getGiftRules, matchGiftRule } from '@/lib/config'
 import { nextCorrelativo } from '@/lib/correlativo'
+import { enqueueSheetSync, mediosAPlano } from '@/lib/erp-sheet'
 
 /**
  * Venta de un equipo (ERP §4.2, reglas 27-33).
@@ -242,6 +243,24 @@ export async function registrarVenta(input: RegistrarVentaInput) {
     createdById: input.createdById || null,
     metadata: { operationId: numero, precio: input.precioVenta },
   }).catch(() => {})
+
+  // Replicar al sheet ERP (nunca bloquea la venta).
+  await enqueueSheetSync('VENTA', numero, {
+    numero,
+    fecha: new Date().toISOString().slice(0, 10),
+    modelo: producto.name,
+    imei: unidad?.imei || '',
+    cliente: input.cliente,
+    cuil: input.cuil || '',
+    telefono: input.tel || '',
+    ...mediosAPlano(medios),
+    gananciaTeorica,
+    gananciaCobrada,
+    tipoGanancia,
+    tipoOrigen: originType,
+    estado: 'PROCESADA',
+    operador: input.operador || input.vendedor || '',
+  })
 
   // Regalo automático (regla 87-91) — nunca bloquea la venta.
   let regalo: { accesorio: string; entregado: boolean; motivo?: string } | null = null

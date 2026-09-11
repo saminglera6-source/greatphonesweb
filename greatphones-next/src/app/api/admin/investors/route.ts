@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-guard'
 import { registerEntry } from '@/lib/accounting'
+import { enqueueSheetSync } from '@/lib/erp-sheet'
 import { z } from 'zod'
 
 const CreateInvestorSchema = z.object({
@@ -125,12 +126,12 @@ export async function POST(request: Request) {
         : d.type === 'AJUSTE' ? 'NEUTRO'
         : null
 
-      await prisma.$transaction(async tx => {
+      const movimiento = await prisma.$transaction(async tx => {
         await tx.investor.update({
           where: { id: inv.id },
           data: { capital: newCapital, pending: newPending, paidTotal: inv.paidTotal },
         })
-        await tx.investorMovement.create({
+        const mov = await tx.investorMovement.create({
           data: {
             investorId: inv.id,
             type: d.type,
@@ -170,6 +171,17 @@ export async function POST(request: Request) {
             operator: d.operator || null,
           }, tx)
         }
+        return mov
+      })
+
+      await enqueueSheetSync('INVERSOR', movimiento.id, {
+        inversor: inv.name,
+        fecha: new Date().toISOString().slice(0, 10),
+        tipo: d.type,
+        detalle: d.detail || '',
+        monto: d.amount,
+        capitalResultante: newCapital,
+        operador: d.operator || '',
       })
 
       return NextResponse.json({ success: true })

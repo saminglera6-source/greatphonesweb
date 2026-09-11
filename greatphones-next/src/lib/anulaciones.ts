@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { recomputeCashRegisters } from '@/lib/accounting'
+import { enqueueSheetSync } from '@/lib/erp-sheet'
 import type { PaymentMeans } from '@prisma/client'
 
 /**
@@ -46,7 +47,7 @@ export async function anularOperacion(ctx: Ctx) {
   if (!ctx.motivo?.trim()) throw new AnulacionError('El motivo de la anulación es obligatorio.')
   const opId = ctx.operationId.trim()
 
-  return prisma.$transaction(async tx => {
+  const result = await prisma.$transaction(async tx => {
     await lockOperacion(tx, opId)
 
     const entries = await tx.accountingEntry.findMany({
@@ -188,8 +189,18 @@ export async function anularOperacion(ctx: Ctx) {
       },
     })
 
-    return { ok: true, operacion: opId, asientos: entries.length, motivo: ctx.motivo }
+    return { ok: true, operacion: opId, asientos: entries.length, motivo: ctx.motivo, source }
   })
+
+  await enqueueSheetSync('ANULACION', opId, {
+    numeroOriginal: opId,
+    tipoOriginal: result.source || '',
+    fecha: new Date().toISOString().slice(0, 10),
+    motivo: ctx.motivo,
+    operador: ctx.operador || '',
+  })
+
+  return result
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -199,7 +210,7 @@ export async function restaurarOperacion(ctx: Omit<Ctx, 'motivo'> & { motivo?: s
   const opId = ctx.operationId.trim()
   const motivo = ctx.motivo || 'Restauración'
 
-  return prisma.$transaction(async tx => {
+  const result = await prisma.$transaction(async tx => {
     await lockOperacion(tx, opId)
 
     const entries = await tx.accountingEntry.findMany({
@@ -281,6 +292,16 @@ export async function restaurarOperacion(ctx: Omit<Ctx, 'motivo'> & { motivo?: s
       },
     })
 
-    return { ok: true, operacion: opId, asientos: entries.length }
+    return { ok: true, operacion: opId, asientos: entries.length, source }
   })
+
+  await enqueueSheetSync('RESTAURACION', opId, {
+    numeroOriginal: opId,
+    tipoOriginal: result.source || '',
+    fecha: new Date().toISOString().slice(0, 10),
+    motivo,
+    operador: ctx.operador || '',
+  })
+
+  return result
 }

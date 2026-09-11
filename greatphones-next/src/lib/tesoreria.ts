@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { registerEntry, getCashBalances } from '@/lib/accounting'
 import { dolarActual } from '@/lib/dolar-server'
+import { enqueueSheetSync } from '@/lib/erp-sheet'
 
 /**
  * Tesorería (ERP §4.11-4.12, reglas 62-70).
@@ -92,6 +93,19 @@ export async function cambioMoneda(input: CambioMonedaInput) {
     metadata: { cambio: true, usd: input.usd, cotizacion: cot, lado: 'usd' },
   })
 
+  await enqueueSheetSync('CAMBIO_MONEDA', op, {
+    numero: op,
+    fecha: new Date().toISOString().slice(0, 10),
+    cajaOrigen: compraUsd ? input.cajaPesos : 'USD',
+    cajaDestino: compraUsd ? 'USD' : input.cajaPesos,
+    montoUsd: input.usd,
+    cotizacion: cot,
+    montoPesos: pesos,
+    direccion: input.direccion,
+    observaciones: input.obs || '',
+    operador: input.operator || '',
+  })
+
   return { operacion: op, usd: input.usd, pesos, cotizacion: cot, direccion: input.direccion }
 }
 
@@ -130,6 +144,17 @@ export async function ajusteCaja(input: AjusteCajaInput) {
     operator: input.operator || null,
     createdById: input.createdById || null,
     metadata: { ajuste: true, tipo: input.tipo, motivo: input.motivo, obs: input.obs || null },
+  })
+
+  await enqueueSheetSync('AJUSTE_CAJA', op, {
+    numero: op,
+    fecha: new Date().toISOString().slice(0, 10),
+    caja: input.means,
+    tipo: input.tipo,
+    monto: input.monto,
+    motivo: input.motivo,
+    observaciones: input.obs || '',
+    operador: input.operator || '',
   })
 
   return { operacion: op, tipo: input.tipo, means: input.means, monto: input.monto }

@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth-guard'
 import { registerEntry } from '@/lib/accounting'
 import { auditar } from '@/lib/audit'
 import { nextCorrelativo } from '@/lib/correlativo'
+import { enqueueSheetSync } from '@/lib/erp-sheet'
 import { z } from 'zod'
 
 const CreateSchema = z.object({
@@ -236,6 +237,27 @@ export async function POST(request: Request) {
         }).catch(e => console.error('[Taller Reparacion] asiento:', e))
       }
     }
+
+    // Replicar al sheet ERP (nunca bloquea el alta de la reparación).
+    await enqueueSheetSync('REPARACION', repair.code, {
+      numero: repair.code,
+      tipo: d.tipo || 'Particular',
+      fecha: new Date().toISOString().slice(0, 10),
+      cliente: d.cliente,
+      telefono: d.tel || '',
+      equipo: d.equipo,
+      imei: d.imei || '',
+      pin: d.pin || '',
+      falla1: d.falla1,
+      falla2: d.falla2 || '',
+      trabajos: (d.trabajos || []).join(', '),
+      precioCalculado: d.precioCalculado || 0,
+      precioCobrado: pricePaid,
+      tiempoEstimado: d.tiempoEstimadoHoras || 0,
+      esDiagnostico: !!d.esDiagnostico,
+      estado: repair.status,
+      operador: d.operador,
+    })
 
     return NextResponse.json({ numero: code, ...repair }, { status: 201 })
   } catch (error) {

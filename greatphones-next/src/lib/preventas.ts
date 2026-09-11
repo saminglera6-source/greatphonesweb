@@ -4,6 +4,7 @@ import { dolarActual } from '@/lib/dolar-server'
 import { auditar } from '@/lib/audit'
 import { calcularRangoEntrega, validarRangoEntrega } from '@/lib/dias-habiles'
 import { nextCorrelativo } from '@/lib/correlativo'
+import { enqueueSheetSync, mediosAPlano } from '@/lib/erp-sheet'
 
 /**
  * Ciclo de preventa (Fase 1 — paridad con el ERP §4.3 y §4.4).
@@ -228,7 +229,26 @@ export async function registrarPreventa(input: RegistrarPreventaInput) {
     createdById: input.createdById || null,
   }).catch(() => {})
 
-  return { code: pre.code, preOrder: pre, saldo: saldoPendiente(pre, usdRate) }
+  const saldo = saldoPendiente(pre, usdRate)
+  await enqueueSheetSync('PREVENTA', pre.code, {
+    numero: pre.code,
+    fecha: new Date().toISOString().slice(0, 10),
+    cliente: input.cliente,
+    cuil: input.cuil || '',
+    telefono: input.tel || '',
+    modelo: input.modelo,
+    vendedor: input.operador || input.vendedor || '',
+    fechaDesde: fechaDesde || '',
+    fechaHasta: fechaHasta || '',
+    precioVenta: input.precioVenta,
+    ...mediosAPlano(medios),
+    totalCobrado: cobradoPesos,
+    saldoPendiente: saldo,
+    estado: PRE.ESPERANDO_COMPRA,
+    operador: input.operador || input.vendedor || '',
+  })
+
+  return { code: pre.code, preOrder: pre, saldo }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -513,6 +533,16 @@ export async function entregarPreventa(input: EntregarPreventaInput) {
     operator: input.operador || pre.sellerName || null,
     createdById: input.createdById || null,
   }).catch(() => {})
+
+  await enqueueSheetSync('ENTREGA_PREVENTA', pre.code, {
+    numeroPreventa: pre.code,
+    fecha: new Date().toISOString().slice(0, 10),
+    ventaGenerada: result.saleCode,
+    cobradoAhora,
+    saldoRestante: result.saldoRestante,
+    estado: result.saldoRestante > 0 ? PRE.ENTREGADO_SALDO : PRE.ENTREGADO,
+    operador: input.operador || pre.sellerName || '',
+  })
 
   return {
     preventa: pre.code,

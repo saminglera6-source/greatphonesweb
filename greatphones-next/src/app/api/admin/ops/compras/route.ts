@@ -5,6 +5,7 @@ import { registerEntry } from '@/lib/accounting'
 import { auditar } from '@/lib/audit'
 import { productCache } from '@/lib/cache'
 import { nextCorrelativo } from '@/lib/correlativo'
+import { enqueueSheetSync } from '@/lib/erp-sheet'
 import { z } from 'zod'
 
 // La Lista de Precios guarda los colores en inglés (Apple), pero el resto
@@ -260,6 +261,25 @@ export async function POST(request: Request) {
 
     // Limpiar cache de productos
     productCache.clear()
+
+    // Replicar al sheet ERP (nunca bloquea la compra).
+    await enqueueSheetSync('COMPRA', numero, {
+      numero,
+      fecha: new Date().toISOString().slice(0, 10),
+      tipo: d.tipo,
+      proveedor: d.proveedor || '',
+      cuil: d.cuil || '',
+      modelo: d.modelo,
+      marca: d.marca || '',
+      storage: d.storage || '',
+      color: d.color || '',
+      imei: d.imei || '',
+      precioCompra: monto,
+      formaPago: d.formaPago || '',
+      necesitaArreglo,
+      esPreventa,
+      operador: d.operador,
+    })
 
     return NextResponse.json({ numero, estado: status, item: result.item }, { status: 201 })
   } catch (error) {

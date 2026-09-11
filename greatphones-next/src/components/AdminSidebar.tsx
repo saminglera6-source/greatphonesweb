@@ -135,6 +135,7 @@ const gestion: SubGroup[] = [
       { href: '/admin/chat', label: 'Chat', icon: 'chat', legacy: 'chat' },
       { href: '/admin/usuarios', label: 'Usuarios', icon: 'group', legacy: 'users' },
       { href: '/admin/clientes', label: 'Ficha de Cliente', icon: 'badge' },
+      { href: '/admin/erp-sync', label: 'Sincronización ERP', icon: 'sync' },
     ],
   },
 ]

@@ -1063,6 +1063,26 @@ model AuditLog {
   @@index([createdAt])
 }
 
+// Cola de replicación al sheet "PRUEBA GP" (ERP). Cada operación de captura
+// encola una fila; un webhook de Apps Script la escribe en la hoja
+// correspondiente. Nunca bloquea la operación real — si el sheet no responde,
+// queda PENDING para reintentar (ERP §1.4: prioridad a la continuidad operativa).
+model SheetSync {
+  id          String    @id @default(cuid())
+  tipo        String    // VENTA | COMPRA | PREVENTA | ENTREGA_PREVENTA | REPARACION | GASTO | CAMBIO_MONEDA | AJUSTE_CAJA | INVERSOR | COMPRA_ACCESORIOS | ANULACION
+  operationId String    // código de la operación (VTA-0001, ...) — permite ubicar la fila para anular
+  payload     Json      // columnas ya armadas con el nombre que usa la hoja
+  status      String    @default("PENDING") // PENDING | SENT | ERROR
+  attempts    Int       @default(0)
+  lastError   String?
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([status])
+  @@index([operationId])
+  @@index([createdAt])
+}
+
 // Reprogramación de fecha en el Calendario de pendientes: permite mover un
 // pendiente (reparación, preventa, pedido, cotización o arrepentimiento) a
 // otro día sin tocar su fecha "real" de origen (createdAt, entrega, etc).
